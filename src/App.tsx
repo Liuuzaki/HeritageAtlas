@@ -15,7 +15,8 @@ const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', registry: '', styl
 function readRoute(): Route {
   const raw = window.location.hash.replace(/^#/, '')
   const match = raw.match(/^\/place\/([^/]+)\/?$/)
-  return match ? { kind: 'place', qid: decodeURIComponent(match[1]) } : { kind: 'home' }
+  const qid = match?.[1]
+  return qid ? { kind: 'place', qid: decodeURIComponent(qid) } : { kind: 'home' }
 }
 
 function placeHref(qid: string): string {
@@ -85,8 +86,14 @@ async function downloadBytes(url: string, onProgress: (received: number, total?:
   return bytes
 }
 
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
+}
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', bytes)
+  const hash = await crypto.subtle.digest('SHA-256', copyToArrayBuffer(bytes))
   return [...new Uint8Array(hash)].map((part) => part.toString(16).padStart(2, '0')).join('')
 }
 

@@ -6,21 +6,8 @@ const IDB_NAME = 'heritage-atlas-local-data'
 const IDB_STORE = 'datasets'
 const IDB_KEY = 'current'
 
-type OpfsFileHandle = {
-  getFile(): Promise<File>
-  createWritable(): Promise<{
-    write(data: Uint8Array | ArrayBuffer | string): Promise<void>
-    close(): Promise<void>
-  }>
-}
-
-type OpfsDirectory = {
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<OpfsFileHandle>
-  removeEntry(name: string): Promise<void>
-}
-
 type StorageWithOpfs = StorageManager & {
-  getDirectory?: () => Promise<OpfsDirectory>
+  getDirectory?: () => Promise<FileSystemDirectoryHandle>
 }
 
 type IndexedRecord = {
@@ -28,15 +15,15 @@ type IndexedRecord = {
   bytes: ArrayBuffer
 }
 
-function getOpfs(): Promise<OpfsDirectory> | null {
+function getOpfs(): Promise<FileSystemDirectoryHandle> | null {
   const storage = navigator.storage as StorageWithOpfs
   return typeof storage.getDirectory === 'function' ? storage.getDirectory() : null
 }
 
-function copyBytes(bytes: Uint8Array): Uint8Array {
-  const copied = new Uint8Array(bytes.byteLength)
-  copied.set(bytes)
-  return copied
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
 }
 
 function openIndexedDb(): Promise<IDBDatabase> {
@@ -82,7 +69,7 @@ async function writeIndexedDb(metadata: StoredAtlasMetadata, bytes: Uint8Array):
   try {
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(IDB_STORE, 'readwrite')
-      transaction.objectStore(IDB_STORE).put({ metadata, bytes: copyBytes(bytes).buffer } satisfies IndexedRecord, IDB_KEY)
+      transaction.objectStore(IDB_STORE).put({ metadata, bytes: copyToArrayBuffer(bytes) } satisfies IndexedRecord, IDB_KEY)
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error ?? new Error('Could not save browser storage.'))
       transaction.onabort = () => reject(transaction.error ?? new Error('Saving browser storage was aborted.'))
@@ -106,7 +93,7 @@ async function clearIndexedDb(): Promise<void> {
   }
 }
 
-async function readOpfs(root: OpfsDirectory): Promise<StoredAtlas | null> {
+async function readOpfs(root: FileSystemDirectoryHandle): Promise<StoredAtlas | null> {
   try {
     const metaHandle = await root.getFileHandle(OPFS_META_FILE)
     const dbHandle = await root.getFileHandle(OPFS_DB_FILE)
@@ -119,10 +106,10 @@ async function readOpfs(root: OpfsDirectory): Promise<StoredAtlas | null> {
   }
 }
 
-async function writeOpfs(root: OpfsDirectory, metadata: StoredAtlasMetadata, bytes: Uint8Array): Promise<void> {
+async function writeOpfs(root: FileSystemDirectoryHandle, metadata: StoredAtlasMetadata, bytes: Uint8Array): Promise<void> {
   const dbHandle = await root.getFileHandle(OPFS_DB_FILE, { create: true })
   const dbWriter = await dbHandle.createWritable()
-  await dbWriter.write(bytes)
+  await dbWriter.write(copyToArrayBuffer(bytes))
   await dbWriter.close()
 
   const metaHandle = await root.getFileHandle(OPFS_META_FILE, { create: true })
