@@ -10,30 +10,35 @@ IndexedDB otherwise. Later visits reopen the stored dataset automatically.
 The app then queries SQLite in the browser. Search, filters, map-viewport
 queries, sorting, and 20-result pagination do not request place data again.
 
-## Build a production dataset
+## Import a production dataset
 
-1. Convert your dumper CSV to compact JSON:
+The single importer reads CSV directly and can either merge records into an
+existing atlas (matching on Wikidata QID) or replace it with a new database.
+Run it without arguments to use the desktop interface:
 
 ```powershell
-python scripts/csv_to_places_json.py `
-  --input "heritage_places_with_views.csv" `
-  --output "build/places.json" `
-  --registry "Mérimée"
+python scripts/atlas_csv_importer.py
 ```
 
-2. Build the SQLite database and manifest:
+For an automated build, use the same tool from the command line:
 
 ```powershell
-python scripts/build_atlas_sqlite.py `
-  --input "build/places.json" `
+python scripts/atlas_csv_importer.py `
+  --input "heritage_places_with_views.csv" `
   --output "build/heritage-atlas-2026-06.sqlite" `
+  --registry "Mérimée" `
+  --mode merge `
   --manifest "public/data/atlas-manifest.json" `
   --version "2026-06-27" `
   --name "Heritage Atlas · 2026-06-27" `
   --dataset-url "https://YOUR-DATA-HOST/heritage-atlas-2026-06.sqlite"
 ```
 
-3. Upload the `.sqlite` file to a host that permits cross-origin `fetch()`
+Use `--mode replace` when the CSV is the complete dataset. The default
+`--mode merge` preserves places not present in the CSV and updates matching
+QIDs. Rows without a QID or valid map coordinates are reported and skipped.
+
+Upload the `.sqlite` file to a host that permits cross-origin `fetch()`
 requests from your GitHub Pages domain. The manifest stays in the site repo;
 it is tiny and tells the app whether a newer dataset exists.
 
