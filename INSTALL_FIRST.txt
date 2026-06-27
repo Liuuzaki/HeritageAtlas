@@ -1,0 +1,16 @@
+HERITAGE ATLAS — LOCAL SQLITE EDITION
+
+1. Install Node.js LTS.
+2. Open this folder in PowerShell.
+3. Run:
+
+   npm install --registry=https://registry.npmjs.org/
+   npm run dev
+
+4. Open the address shown by Vite. Click Download dataset once.
+   The sample database is only three records so you can test the workflow.
+
+5. For your real data, read LOCAL_DATASET.md.
+
+Important: the website now reads atlas-manifest.json and an installed SQLite
+atlas, not places.json. Visitor searches run locally after the first download.

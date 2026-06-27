@@ -1,0 +1,47 @@
+[
+  {
+    "qid": "Q243",
+    "name": "Palace of Versailles",
+    "nativeName": "Château de Versailles",
+    "country": "France",
+    "city": "Versailles",
+    "latitude": 48.8049,
+    "longitude": 2.1204,
+    "registry": { "name": "Mérimée", "identifier": "PA00087676", "url": "https://www.pop.culture.gouv.fr/notice/merimee/PA00087676" },
+    "designations": ["Monument historique"],
+    "styles": ["Baroque architecture"],
+    "thumbnail": { "kind": "generated" },
+    "wikipedia": { "native": "https://fr.wikipedia.org/wiki/Ch%C3%A2teau_de_Versailles", "english": "https://en.wikipedia.org/wiki/Palace_of_Versailles" },
+    "wikiViewCount": 0
+  },
+  {
+    "qid": "Q1748",
+    "name": "Church of Saint-Sulpice",
+    "nativeName": "Église Saint-Sulpice de Paris",
+    "country": "France",
+    "city": "Paris",
+    "latitude": 48.8507,
+    "longitude": 2.3339,
+    "registry": { "name": "Mérimée", "identifier": "PA00088992", "url": "https://www.pop.culture.gouv.fr/notice/merimee/PA00088992" },
+    "designations": ["Monument historique"],
+    "styles": ["Baroque architecture"],
+    "thumbnail": { "kind": "generated" },
+    "wikipedia": { "native": "https://fr.wikipedia.org/wiki/%C3%89glise_Saint-Sulpice_de_Paris", "english": "https://en.wikipedia.org/wiki/Church_of_Saint-Sulpice,_Paris" },
+    "wikiViewCount": 0
+  },
+  {
+    "qid": "Q1691",
+    "name": "Vaux-le-Vicomte",
+    "nativeName": "Château de Vaux-le-Vicomte",
+    "country": "France",
+    "city": "Maincy",
+    "latitude": 48.5663,
+    "longitude": 2.7143,
+    "registry": { "name": "Mérimée", "identifier": "PA00086975", "url": "https://www.pop.culture.gouv.fr/notice/merimee/PA00086975" },
+    "designations": ["Monument historique"],
+    "styles": ["Baroque architecture"],
+    "thumbnail": { "kind": "generated" },
+    "wikipedia": { "native": "https://fr.wikipedia.org/wiki/Ch%C3%A2teau_de_Vaux-le-Vicomte", "english": "https://en.wikipedia.org/wiki/Ch%C3%A2teau_de_Vaux-le-Vicomte" },
+    "wikiViewCount": 0
+  }
+]
