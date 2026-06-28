@@ -1,29 +1,27 @@
 export type Place = {
   qid: string
-  name: string
-  nativeName?: string
-  country?: string
-  city?: string
-  latitude: number
-  longitude: number
-  registry: {
-    name: string
-    identifier: string
-    url?: string
-  }
+  labelNative: string
+  labelEn?: string
+  labelZh?: string
+  coordinatesWkt?: string
+  latitude?: number
+  longitude?: number
+  nativeLanguageLabelEn?: string
+  countryLabelEn?: string
   designations: string[]
   styles: string[]
-  thumbnail: {
-    primary?: string
-    backups?: string[]
-    sourcePage?: string
-    kind: 'commons' | 'external' | 'generated'
-  }
-  wikipedia: {
-    native?: string
-    english?: string
-  }
+  inceptionValues: string[]
+  nativeWikiViewCount: number
+  enWikiViewCount: number
   wikiViewCount?: number
+  wikipediaSitelinksCount: number
+  sourceRecordUrls: string[]
+  nativeWikiUrl?: string
+  enWikiUrl?: string
+  commonsImageUrls: string[]
+  officialWebsiteUrls: string[]
+  registryName: string
+  sourceFields: Record<string, string>
 }
 
 export type AtlasManifest = {

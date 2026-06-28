@@ -36,7 +36,16 @@ python scripts/atlas_csv_importer.py `
 
 Use `--mode replace` when the CSV is the complete dataset. The default
 `--mode merge` preserves places not present in the CSV and updates matching
-QIDs. Rows without a QID or valid map coordinates are reported and skipped.
+QIDs. Rows without a QID are skipped. Places without valid coordinates are
+kept in the database and search results, but do not appear on the map.
+
+The current CSV format stores every source column, including labels in three
+languages, WKT coordinates, language and country, heritage/designation data,
+inception values, all Wikipedia counts and links, source-record links, Commons
+images, and official websites. Additional future CSV columns are also retained
+as SQLite columns and shown on the record page. `label_native` is the primary
+place heading; `label_en` and `label_zh` appear beneath it. The first URL in
+`commons_image_urls` is used as the thumbnail.
 
 Upload the `.sqlite` file to a host that permits cross-origin `fetch()`
 requests from your GitHub Pages domain. The manifest stays in the site repo;
@@ -48,13 +57,12 @@ A GitHub Release asset or a separate CDN is a better default.
 
 ## What the database contains
 
-- `places`: one row per Wikidata item / place
-- `place_styles`: multiple architectural styles per place
-- `place_designations`: multiple heritage designations per place
+- `places`: one row per Wikidata item, with every CSV field plus derived
+  latitude/longitude values used by the map
 - `metadata`: dataset version information
 
-The builder creates indexes for country, registry, map coordinates, Wikipedia
-view count, styles, and designations.
+The importer creates indexes for country, registry, native label, map
+coordinates, and Wikipedia view count.
 
 ## Local storage behavior
 

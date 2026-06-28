@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { AtlasDatabase } from './atlasDb'
+import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatViews } from './data'
 import { MapPanel } from './MapPanel'
+import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, requestPersistentStorage, saveInstalledAtlas } from './storage'
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata } from './types'
 
@@ -11,6 +12,13 @@ type InstallProgress = { stage: 'idle' | 'downloading' | 'installing'; received:
 const PAGE_SIZE = 20
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], registries: [] }
 const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', registry: '', style: '', sort: 'views' }
+const DISPLAYED_SOURCE_FIELDS = new Set([
+  'wikidata_qid', 'label_native', 'label_en', 'label_zh', 'coordinates_wkt',
+  'native_language_label_en', 'country_label_en', 'heritage_designation_labels_native',
+  'architectural_style_label_en', 'inception_values', 'nativewikiviewcount',
+  'enwikiviewcount', 'wikiviewcount', 'wikipedia_sitelinks_count', 'source_record_urls',
+  'nativewiki_url', 'enwiki_url', 'commons_image_urls', 'official_website_urls',
+])
 
 function readRoute(): Route {
   const raw = window.location.hash.replace(/^#/, '')
@@ -98,7 +106,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card' | 'hero' }) {
-  const candidates = [place.thumbnail.primary, ...(place.thumbnail.backups ?? [])].filter(Boolean) as string[]
+  const candidates = place.commonsImageUrls
   const [index, setIndex] = useState(0)
   const source = candidates[index]
   const className = variant === 'hero' ? 'thumbnail thumbnail-hero' : 'thumbnail'
@@ -112,11 +120,10 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
     )
   }
 
-  return (
-    <a href={place.thumbnail.sourcePage ?? source} target="_blank" rel="noreferrer" className="thumbnail-link">
-      <img className={className} src={source} alt={place.name} loading="lazy" onError={() => setIndex((current) => current + 1)} />
-    </a>
-  )
+  const imageSource = variant === 'hero' ? fullResolutionImageUrl(source) : thumbnailImageUrl(source)
+  const image = <img className={className} src={imageSource} alt={place.labelNative} loading={variant === 'hero' ? 'eager' : 'lazy'} onError={() => setIndex((current) => current + 1)} />
+  if (variant === 'card') return image
+  return <a href={fullResolutionImageUrl(source)} target="_blank" rel="noreferrer" className="thumbnail-link">{image}</a>
 }
 
 function PlaceCard({ place }: { place: Place }) {
@@ -125,10 +132,10 @@ function PlaceCard({ place }: { place: Place }) {
       <a className="card-button" href={placeHref(place.qid)}>
         <Thumbnail place={place} />
         <span className="card-copy">
-          <strong>{place.name}</strong>
-          {place.nativeName && place.nativeName !== place.name && <span>{place.nativeName}</span>}
-          <span>{[place.city, place.country].filter(Boolean).join(', ') || 'Location not recorded'}</span>
-          <span className="badge">{place.registry.name}</span>
+          <strong>{place.labelNative}</strong>
+          {(place.labelEn || place.labelZh) && <span className="place-subheading">{[place.labelEn, place.labelZh].filter(Boolean).join(' · ')}</span>}
+          <span>{place.countryLabelEn || 'Location not recorded'}</span>
+          <span className="badge">{place.registryName}</span>
         </span>
       </a>
       <div className="card-meta">
@@ -140,11 +147,15 @@ function PlaceCard({ place }: { place: Place }) {
 }
 
 function ExternalLinks({ place }: { place: Place }) {
+  const links = [
+    ...place.sourceRecordUrls.map((url, index) => ({ url, label: `Source record${place.sourceRecordUrls.length > 1 ? ` ${index + 1}` : ''}` })),
+    ...(place.nativeWikiUrl ? [{ url: place.nativeWikiUrl, label: 'Native Wikipedia' }] : []),
+    ...(place.enWikiUrl ? [{ url: place.enWikiUrl, label: 'English Wikipedia' }] : []),
+    ...place.officialWebsiteUrls.map((url, index) => ({ url, label: `Official website${place.officialWebsiteUrls.length > 1 ? ` ${index + 1}` : ''}` })),
+  ]
   return (
     <div className="external-links">
-      {place.registry.url && <a href={place.registry.url} target="_blank" rel="noreferrer">Official registry record</a>}
-      {place.wikipedia.native && <a href={place.wikipedia.native} target="_blank" rel="noreferrer">Native Wikipedia</a>}
-      {place.wikipedia.english && <a href={place.wikipedia.english} target="_blank" rel="noreferrer">English Wikipedia</a>}
+      {links.map(({ url, label }) => <a key={`${label}-${url}`} href={url} target="_blank" rel="noreferrer">{label}</a>)}
       <a href={`https://www.wikidata.org/wiki/${place.qid}`} target="_blank" rel="noreferrer">Wikidata item</a>
     </div>
   )
@@ -154,19 +165,30 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   return <div className="detail-row"><dt>{label}</dt><dd>{children}</dd></div>
 }
 
+function TextList({ values }: { values: string[] }) {
+  return values.length ? <ul>{values.map((value) => <li key={value}>{value}</li>)}</ul> : <>Not recorded</>
+}
+
+function LinkList({ values, label }: { values: string[]; label: string }) {
+  return values.length ? <ul>{values.map((url, index) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{label} {index + 1}</a></li>)}</ul> : <>Not recorded</>
+}
+
 function PlacePage({ database, qid }: { database: AtlasDatabase; qid: string }) {
   const place = useMemo(() => database.getPlace(qid), [database, qid])
 
   useEffect(() => {
-    document.title = place ? `${place.name} · Heritage Atlas` : 'Record not found · Heritage Atlas'
+    document.title = place ? `${place.labelNative} · Heritage Atlas` : 'Record not found · Heritage Atlas'
   }, [place])
 
   if (!place) {
     return <main className="record-page"><a href="#/" className="back-link">← Back to explore</a><h1>Record not found</h1><p>This link does not match the installed atlas dataset.</p></main>
   }
 
-  const location = [place.city, place.country].filter(Boolean).join(', ')
-  const coordinateText = `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`
+  const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
+  const coordinateText = hasCoordinates ? `${place.latitude!.toFixed(5)}, ${place.longitude!.toFixed(5)}` : ''
+  const additionalFields = Object.entries(place.sourceFields).filter(
+    ([key, value]) => value.trim() && !DISPLAYED_SOURCE_FIELDS.has(key.toLocaleLowerCase()),
+  )
 
   return (
     <main className="record-page">
@@ -175,24 +197,47 @@ function PlacePage({ database, qid }: { database: AtlasDatabase; qid: string }) 
         <section className="record-hero-wrap">
           <Thumbnail place={place} variant="hero" />
           <div>
-            <p className="eyebrow">{place.registry.name}</p>
-            <h1>{place.name}</h1>
-            {place.nativeName && place.nativeName !== place.name && <p className="native-name">{place.nativeName}</p>}
-            {location && <p className="record-location">{location}</p>}
+            <p className="eyebrow">{place.registryName}</p>
+            <h1>{place.labelNative}</h1>
+            {(place.labelEn || place.labelZh) && <p className="translated-name">
+              {place.labelEn && <span lang="en">{place.labelEn}</span>}
+              {place.labelZh && <span lang="zh">{place.labelZh}</span>}
+            </p>}
+            {place.countryLabelEn && <p className="record-location">{place.countryLabelEn}</p>}
             <ExternalLinks place={place} />
           </div>
         </section>
         <section className="record-grid" aria-label="Record details">
           <dl>
-            <DetailRow label="Registry identifier">{place.registry.identifier || 'Not recorded'}</DetailRow>
-            <DetailRow label="Heritage designation">{place.designations.length ? <ul>{place.designations.map((item) => <li key={item}>{item}</li>)}</ul> : 'Not recorded'}</DetailRow>
-            <DetailRow label="Architectural style">{place.styles.length ? <ul>{place.styles.map((item) => <li key={item}>{item}</li>)}</ul> : 'Not recorded'}</DetailRow>
+            <DetailRow label="Native label (label_native)">{place.labelNative || 'Not recorded'}</DetailRow>
+            <DetailRow label="English label (label_en)">{place.labelEn || 'Not recorded'}</DetailRow>
+            <DetailRow label="Chinese label (label_zh)">{place.labelZh || 'Not recorded'}</DetailRow>
+            <DetailRow label="Native language">{place.nativeLanguageLabelEn || 'Not recorded'}</DetailRow>
+            <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
+            <DetailRow label="Heritage designation"><TextList values={place.designations} /></DetailRow>
+            <DetailRow label="Architectural style"><TextList values={place.styles} /></DetailRow>
+            <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
           </dl>
           <dl>
-            <DetailRow label="Coordinates"><a href={`https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=16/${place.latitude}/${place.longitude}`} target="_blank" rel="noreferrer">{coordinateText}</a></DetailRow>
-            <DetailRow label="Wikipedia reader attention">{place.wikiViewCount ? `${formatViews(place.wikiViewCount)} historical views` : 'Not recorded'}</DetailRow>
-            <DetailRow label="Wikidata QID">{place.qid}</DetailRow>
+            <DetailRow label="Coordinates (WKT)">{place.coordinatesWkt || 'Not recorded'}</DetailRow>
+            <DetailRow label="Map coordinates">{hasCoordinates ? <a href={`https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=16/${place.latitude}/${place.longitude}`} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
+            <DetailRow label="Native Wikipedia views">{place.nativeWikiViewCount.toLocaleString()}</DetailRow>
+            <DetailRow label="English Wikipedia views">{place.enWikiViewCount.toLocaleString()}</DetailRow>
+            <DetailRow label="Combined Wikipedia views">{(place.wikiViewCount ?? 0).toLocaleString()}</DetailRow>
+            <DetailRow label="Wikipedia sitelinks">{place.wikipediaSitelinksCount.toLocaleString()}</DetailRow>
+            <DetailRow label="Wikidata QID"><a href={`https://www.wikidata.org/wiki/${place.qid}`} target="_blank" rel="noreferrer">{place.qid}</a></DetailRow>
+            <DetailRow label="Registry used for import">{place.registryName}</DetailRow>
           </dl>
+          <dl>
+            <DetailRow label="Source record URLs"><LinkList values={place.sourceRecordUrls} label="Source record" /></DetailRow>
+            <DetailRow label="Native Wikipedia URL">{place.nativeWikiUrl ? <a href={place.nativeWikiUrl} target="_blank" rel="noreferrer">Open native Wikipedia</a> : 'Not recorded'}</DetailRow>
+            <DetailRow label="English Wikipedia URL">{place.enWikiUrl ? <a href={place.enWikiUrl} target="_blank" rel="noreferrer">Open English Wikipedia</a> : 'Not recorded'}</DetailRow>
+            <DetailRow label="Commons image URLs"><LinkList values={place.commonsImageUrls} label="Commons image" /></DetailRow>
+            <DetailRow label="Official website URLs"><LinkList values={place.officialWebsiteUrls} label="Official website" /></DetailRow>
+          </dl>
+          {additionalFields.length > 0 && <dl>
+            {additionalFields.map(([key, value]) => <DetailRow key={key} label={key}>{value}</DetailRow>)}
+          </dl>}
         </section>
       </article>
       <footer><span>Map: © OpenStreetMap contributors.</span><span>Images remain hosted by their original sources.</span></footer>
@@ -250,7 +295,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       </header>
 
       <section className="controls" aria-label="Place filters">
-        <label>Search<input value={filters.query} onChange={(event) => updateFilters({ query: event.target.value })} placeholder="Name, city, style, designation…" /></label>
+        <label>Search<input value={filters.query} onChange={(event) => updateFilters({ query: event.target.value })} placeholder="Name, country, style, designation…" /></label>
         <label>Style keyword<input value={filters.style} onChange={(event) => updateFilters({ style: event.target.value })} placeholder="e.g. Baroque" /></label>
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Registry<select value={filters.registry} onChange={(event) => updateFilters({ registry: event.target.value })}><option value="">All registries</option>{stats.registries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
@@ -340,9 +385,21 @@ export default function App() {
         const local = await readInstalledAtlas()
         if (!active) return
         if (local) {
-          setInstalled(local.metadata)
-          await openLocalBytes(local.bytes)
-          return
+          try {
+            await openLocalBytes(local.bytes)
+            if (active) setInstalled(local.metadata)
+            return
+          } catch (reason) {
+            if (!(reason instanceof IncompatibleAtlasError)) throw reason
+            await clearInstalledAtlas().catch(() => undefined)
+            if (!active) return
+            const latestManifest = await loadManifest()
+            if (!active) return
+            setInstalled(null)
+            setManifest(latestManifest)
+            setError('Your saved atlas used the previous data structure and was removed. Download the current dataset to continue.')
+            return
+          }
         }
         const latestManifest = await loadManifest()
         if (active) setManifest(latestManifest)

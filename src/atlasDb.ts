@@ -2,7 +2,6 @@ import { loadSqlJs, type SqlDatabase, type SqlValue } from './sqlite'
 import type { AtlasStats, MapBounds, Place, PlaceFilters, PlaceSearchPage } from './types'
 
 const DELIMITER = '\u001f'
-
 type Row = Record<string, SqlValue | undefined>
 
 function firstResult(database: SqlDatabase, sql: string, params: SqlValue[] = []): Row[] {
@@ -19,64 +18,78 @@ function asNumber(value: SqlValue | undefined): number {
   return typeof value === 'number' ? value : Number(value ?? 0)
 }
 
-function splitList(value: SqlValue | undefined): string[] {
-  return asString(value).split(DELIMITER).map((item) => item.trim()).filter(Boolean)
+function asOptionalNumber(value: SqlValue | undefined): number | undefined {
+  if (value == null || value === '') return undefined
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
-function parseBackups(value: SqlValue | undefined): string[] {
+function splitList(value: SqlValue | undefined): string[] {
+  return asString(value).split(/\s*\|\s*|\u001f/g).map((item) => item.trim()).filter(Boolean)
+}
+
+function parseSourceFields(value: SqlValue | undefined): Record<string, string> {
   try {
-    const parsed: unknown = JSON.parse(asString(value) || '[]')
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+    const parsed: unknown = JSON.parse(asString(value) || '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
   } catch {
-    return []
+    return {}
   }
 }
 
+function displayName(row: Row): string {
+  return asString(row.label_native) || asString(row.label_en) || asString(row.label_zh) || asString(row.qid)
+}
+
 function toPlace(row: Row): Place {
-  const thumbnailKind = asString(row.thumbnail_kind)
   return {
     qid: asString(row.qid),
-    name: asString(row.name),
-    nativeName: asString(row.native_name) || undefined,
-    country: asString(row.country) || undefined,
-    city: asString(row.city) || undefined,
-    latitude: asNumber(row.latitude),
-    longitude: asNumber(row.longitude),
-    registry: {
-      name: asString(row.registry_name) || 'Unspecified registry',
-      identifier: asString(row.registry_identifier),
-      url: asString(row.registry_url) || undefined,
-    },
-    designations: splitList(row.designations),
-    styles: splitList(row.styles),
-    thumbnail: {
-      primary: asString(row.thumbnail_primary) || undefined,
-      backups: parseBackups(row.thumbnail_backups_json),
-      sourcePage: asString(row.thumbnail_source_page) || undefined,
-      kind: thumbnailKind === 'commons' || thumbnailKind === 'external' ? thumbnailKind : 'generated',
-    },
-    wikipedia: {
-      native: asString(row.wikipedia_native) || undefined,
-      english: asString(row.wikipedia_english) || undefined,
-    },
+    labelNative: displayName(row),
+    labelEn: asString(row.label_en) || undefined,
+    labelZh: asString(row.label_zh) || undefined,
+    coordinatesWkt: asString(row.coordinates_wkt) || undefined,
+    latitude: asOptionalNumber(row.latitude),
+    longitude: asOptionalNumber(row.longitude),
+    nativeLanguageLabelEn: asString(row.native_language_label_en) || undefined,
+    countryLabelEn: asString(row.country_label_en) || undefined,
+    designations: splitList(row.heritage_designation_labels_native),
+    styles: splitList(row.architectural_style_label_en),
+    inceptionValues: splitList(row.inception_values),
+    nativeWikiViewCount: asNumber(row.native_wiki_view_count),
+    enWikiViewCount: asNumber(row.en_wiki_view_count),
     wikiViewCount: asNumber(row.wiki_view_count) || undefined,
+    wikipediaSitelinksCount: asNumber(row.wikipedia_sitelinks_count),
+    sourceRecordUrls: splitList(row.source_record_urls),
+    nativeWikiUrl: asString(row.nativewiki_url) || undefined,
+    enWikiUrl: asString(row.enwiki_url) || undefined,
+    commonsImageUrls: splitList(row.commons_image_urls),
+    officialWebsiteUrls: splitList(row.official_website_urls),
+    registryName: asString(row.registry_name) || 'Unspecified registry',
+    sourceFields: parseSourceFields(row.source_fields_json),
   }
 }
 
 function toMapPlace(row: Row): Place {
   return {
     qid: asString(row.qid),
-    name: asString(row.name),
-    nativeName: asString(row.native_name) || undefined,
-    country: asString(row.country) || undefined,
-    city: asString(row.city) || undefined,
-    latitude: asNumber(row.latitude),
-    longitude: asNumber(row.longitude),
-    registry: { name: asString(row.registry_name) || 'Unspecified registry', identifier: '' },
+    labelNative: displayName(row),
+    labelEn: asString(row.label_en) || undefined,
+    labelZh: asString(row.label_zh) || undefined,
+    latitude: asOptionalNumber(row.latitude),
+    longitude: asOptionalNumber(row.longitude),
+    countryLabelEn: asString(row.country_label_en) || undefined,
     designations: [],
     styles: [],
-    thumbnail: { kind: 'generated' },
-    wikipedia: {},
+    inceptionValues: [],
+    nativeWikiViewCount: 0,
+    enWikiViewCount: 0,
+    wikipediaSitelinksCount: 0,
+    sourceRecordUrls: [],
+    commonsImageUrls: splitList(row.commons_image_urls),
+    officialWebsiteUrls: [],
+    registryName: asString(row.registry_name) || 'Unspecified registry',
+    sourceFields: {},
   }
 }
 
@@ -95,50 +108,58 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
   if (query) {
     const like = `%${escapeLike(query.toLocaleLowerCase())}%`
     where.push(`(
-      lower(p.name) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.native_name, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.country, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.city, '')) LIKE ? ESCAPE '\\'
-      OR EXISTS (SELECT 1 FROM place_styles ps WHERE ps.qid = p.qid AND lower(ps.style) LIKE ? ESCAPE '\\')
-      OR EXISTS (SELECT 1 FROM place_designations pd WHERE pd.qid = p.qid AND lower(pd.designation) LIKE ? ESCAPE '\\')
+      lower(COALESCE(p.label_native, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.label_en, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.label_zh, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.country_label_en, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.native_language_label_en, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.heritage_designation_labels_native, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.architectural_style_label_en, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.inception_values, '')) LIKE ? ESCAPE '\\'
     )`)
-    params.push(like, like, like, like, like, like)
+    params.push(like, like, like, like, like, like, like, like)
   }
 
   if (filters.country) {
-    where.push('p.country = ?')
+    where.push('p.country_label_en = ?')
     params.push(filters.country)
   }
-
   if (filters.registry) {
     where.push('p.registry_name = ?')
     params.push(filters.registry)
   }
-
   if (style) {
-    where.push(`EXISTS (SELECT 1 FROM place_styles ps WHERE ps.qid = p.qid AND lower(ps.style) LIKE ? ESCAPE '\\')`)
+    where.push(`lower(COALESCE(p.architectural_style_label_en, '')) LIKE ? ESCAPE '\\'`)
     params.push(`%${escapeLike(style.toLocaleLowerCase())}%`)
   }
-
   if (bounds) {
+    where.push('p.latitude IS NOT NULL AND p.longitude IS NOT NULL')
     where.push('p.latitude BETWEEN ? AND ?')
     where.push('p.longitude BETWEEN ? AND ?')
     params.push(bounds.south, bounds.north, bounds.west, bounds.east)
   }
-
   return { sql: where.length ? `WHERE ${where.join(' AND ')}` : '', params }
 }
 
 const FULL_SELECT = `
   SELECT
-    p.qid, p.name, p.native_name, p.country, p.city, p.latitude, p.longitude,
-    p.registry_name, p.registry_identifier, p.registry_url,
-    p.thumbnail_primary, p.thumbnail_backups_json, p.thumbnail_source_page, p.thumbnail_kind,
-    p.wikipedia_native, p.wikipedia_english, p.wiki_view_count,
-    COALESCE((SELECT group_concat(style, char(31)) FROM place_styles ps WHERE ps.qid = p.qid), '') AS styles,
-    COALESCE((SELECT group_concat(designation, char(31)) FROM place_designations pd WHERE pd.qid = p.qid), '') AS designations
+    p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh, p.coordinates_wkt,
+    p.latitude, p.longitude, p.native_language_label_en, p.country_label_en,
+    p.heritage_designation_labels_native, p.architectural_style_label_en, p.inception_values,
+    p.nativeWikiViewCount AS native_wiki_view_count,
+    p.enWikiViewCount AS en_wiki_view_count,
+    p.wikiViewCount AS wiki_view_count,
+    p.wikipedia_sitelinks_count, p.source_record_urls, p.nativewiki_url, p.enwiki_url,
+    p.commons_image_urls, p.official_website_urls, p.registry_name, p.source_fields_json
   FROM places p
 `
+
+export class IncompatibleAtlasError extends Error {
+  constructor() {
+    super('This atlas uses an older database structure.')
+    this.name = 'IncompatibleAtlasError'
+  }
+}
 
 export class AtlasDatabase {
   private constructor(private readonly database: SqlDatabase) {}
@@ -146,10 +167,10 @@ export class AtlasDatabase {
   static async open(bytes: Uint8Array): Promise<AtlasDatabase> {
     const SQL = await loadSqlJs()
     const database = new SQL.Database(bytes)
-    const check = firstResult(database, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'places'")
-    if (!check.length) {
+    const columns = firstResult(database, "PRAGMA table_info(places)").map((row) => asString(row.name).toLocaleLowerCase())
+    if (!columns.includes('wikidata_qid') || !columns.includes('label_native')) {
       database.close()
-      throw new Error('This file is not a Heritage Atlas SQLite dataset. It must contain a places table.')
+      throw new IncompatibleAtlasError()
     }
     return new AtlasDatabase(database)
   }
@@ -160,7 +181,7 @@ export class AtlasDatabase {
 
   getStats(): AtlasStats {
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
-    const countries = firstResult(this.database, "SELECT DISTINCT country FROM places WHERE country <> '' AND country IS NOT NULL ORDER BY country COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
+    const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
     const registries = firstResult(this.database, "SELECT DISTINCT registry_name FROM places WHERE registry_name <> '' AND registry_name IS NOT NULL ORDER BY registry_name COLLATE NOCASE LIMIT 500").map((row) => asString(row.registry_name))
     return { placeCount: asNumber(count?.count), countries, registries }
   }
@@ -169,8 +190,8 @@ export class AtlasDatabase {
     const where = filtersToWhere(filters)
     const countRow = firstResult(this.database, `SELECT COUNT(*) AS count FROM places p ${where.sql}`, where.params)[0]
     const order = filters.sort === 'name'
-      ? 'p.name COLLATE NOCASE ASC, p.qid ASC'
-      : 'p.wiki_view_count DESC, p.name COLLATE NOCASE ASC, p.qid ASC'
+      ? "COALESCE(NULLIF(p.label_native, ''), NULLIF(p.label_en, ''), p.wikidata_qid) COLLATE NOCASE ASC"
+      : 'p.wikiViewCount DESC, p.label_native COLLATE NOCASE ASC, p.wikidata_qid ASC'
     const offset = Math.max(0, page) * pageSize
     const rows = firstResult(
       this.database,
@@ -181,7 +202,7 @@ export class AtlasDatabase {
   }
 
   getPlace(qid: string): Place | undefined {
-    const row = firstResult(this.database, `${FULL_SELECT} WHERE p.qid = ? LIMIT 1`, [qid])[0]
+    const row = firstResult(this.database, `${FULL_SELECT} WHERE p.wikidata_qid = ? LIMIT 1`, [qid])[0]
     return row ? toPlace(row) : undefined
   }
 
@@ -189,10 +210,10 @@ export class AtlasDatabase {
     const where = filtersToWhere(filters, bounds)
     const rows = firstResult(
       this.database,
-      `SELECT p.qid, p.name, p.native_name, p.country, p.city, p.latitude, p.longitude, p.registry_name
+      `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
+              p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls
        FROM places p ${where.sql}
-       ORDER BY p.wiki_view_count DESC, p.qid ASC
-       LIMIT ?`,
+       ORDER BY p.wikiViewCount DESC, p.wikidata_qid ASC LIMIT ?`,
       [...where.params, limit],
     )
     return rows.map(toMapPlace)

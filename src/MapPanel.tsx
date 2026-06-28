@@ -4,6 +4,7 @@ import 'leaflet.markercluster'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
+import { thumbnailImageUrl } from './images'
 import type { MapBounds, Place } from './types'
 
 // Suitable for local development and a very small public demo. Before public
@@ -28,13 +29,21 @@ function escapeHtml(value: string): string {
 }
 
 function popupHtml(place: Place): string {
-  const location = [place.city, place.country].filter(Boolean).join(', ')
+  const translations = [place.labelEn, place.labelZh].filter(Boolean).join(' · ')
+  const thumbnail = place.commonsImageUrls[0]
+  const image = thumbnail
+    ? `<img class="map-card-image" src="${escapeHtml(thumbnailImageUrl(thumbnail, 180))}" alt="" loading="lazy" decoding="async">`
+    : '<div class="map-card-image map-card-image-fallback" aria-hidden="true">⌖</div>'
   return `
-    <div class="leaflet-popup-copy">
-      <strong>${escapeHtml(place.name)}</strong>
-      ${place.nativeName && place.nativeName !== place.name ? `<span>${escapeHtml(place.nativeName)}</span>` : ''}
-      ${location ? `<span>${escapeHtml(location)}</span>` : ''}
-      <span class="leaflet-popup-action">Open record →</span>
+    <div class="map-card">
+      ${image}
+      <div class="map-card-copy">
+        <strong>${escapeHtml(place.labelNative)}</strong>
+        ${translations ? `<span>${escapeHtml(translations)}</span>` : ''}
+        ${place.countryLabelEn ? `<span>${escapeHtml(place.countryLabelEn)}</span>` : ''}
+        <span class="map-card-badge">${escapeHtml(place.registryName)}</span>
+        <span class="map-card-action">Open record →</span>
+      </div>
     </div>
   `
 }
@@ -111,7 +120,7 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
     markers.clearLayers()
 
     for (const place of places) {
-      if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue
+      if (typeof place.latitude !== 'number' || typeof place.longitude !== 'number') continue
 
       const marker = L.circleMarker([place.latitude, place.longitude], {
         radius: 7,
@@ -121,7 +130,12 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
         fillOpacity: 0.95,
       })
 
-      marker.bindTooltip(place.name, { direction: 'top', offset: [0, -8] })
+      marker.bindTooltip(popupHtml(place), {
+        className: 'place-map-tooltip',
+        direction: 'top',
+        offset: [0, -10],
+        opacity: 1,
+      })
       marker.bindPopup(popupHtml(place), { closeButton: false, offset: [0, -2] })
       marker.on('click', () => onOpenRef.current(place.qid))
       markers.addLayer(marker)

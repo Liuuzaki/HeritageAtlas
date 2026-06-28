@@ -23,8 +23,35 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Iterator
-from urllib.parse import quote
 
+
+PLACES_TABLE_SQL = """
+CREATE TABLE {table} (
+  wikidata_qid TEXT PRIMARY KEY,
+  label_native TEXT NOT NULL DEFAULT '',
+  label_en TEXT,
+  label_zh TEXT,
+  coordinates_wkt TEXT,
+  native_language_label_en TEXT,
+  country_label_en TEXT,
+  heritage_designation_labels_native TEXT,
+  architectural_style_label_en TEXT,
+  inception_values TEXT,
+  nativeWikiViewCount INTEGER NOT NULL DEFAULT 0,
+  enWikiViewCount INTEGER NOT NULL DEFAULT 0,
+  wikiViewCount INTEGER NOT NULL DEFAULT 0,
+  wikipedia_sitelinks_count INTEGER NOT NULL DEFAULT 0,
+  source_record_urls TEXT,
+  nativewiki_url TEXT,
+  enwiki_url TEXT,
+  commons_image_urls TEXT,
+  official_website_urls TEXT,
+  latitude REAL,
+  longitude REAL,
+  registry_name TEXT NOT NULL DEFAULT 'Unspecified registry',
+  source_fields_json TEXT NOT NULL DEFAULT '{{}}'
+);
+"""
 
 SCHEMA = """
 PRAGMA journal_mode = OFF;
@@ -35,56 +62,33 @@ CREATE TABLE metadata (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-
-CREATE TABLE places (
-  qid TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  native_name TEXT,
-  country TEXT,
-  city TEXT,
-  latitude REAL NOT NULL,
-  longitude REAL NOT NULL,
-  registry_name TEXT NOT NULL,
-  registry_identifier TEXT,
-  registry_url TEXT,
-  thumbnail_primary TEXT,
-  thumbnail_backups_json TEXT NOT NULL DEFAULT '[]',
-  thumbnail_source_page TEXT,
-  thumbnail_kind TEXT NOT NULL DEFAULT 'generated',
-  wikipedia_native TEXT,
-  wikipedia_english TEXT,
-  wiki_view_count INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE place_styles (
-  qid TEXT NOT NULL,
-  style TEXT NOT NULL,
-  PRIMARY KEY (qid, style)
-) WITHOUT ROWID;
-
-CREATE TABLE place_designations (
-  qid TEXT NOT NULL,
-  designation TEXT NOT NULL,
-  PRIMARY KEY (qid, designation)
-) WITHOUT ROWID;
-
-CREATE INDEX idx_places_country ON places(country);
-CREATE INDEX idx_places_registry ON places(registry_name);
-CREATE INDEX idx_places_coordinates ON places(latitude, longitude);
-CREATE INDEX idx_places_views ON places(wiki_view_count DESC, qid);
-CREATE INDEX idx_styles_style ON place_styles(style, qid);
-CREATE INDEX idx_designations_designation ON place_designations(designation, qid);
 """
+
+INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_places_country ON places(country_label_en);
+CREATE INDEX IF NOT EXISTS idx_places_registry ON places(registry_name);
+CREATE INDEX IF NOT EXISTS idx_places_coordinates ON places(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_places_views ON places(wikiViewCount DESC, wikidata_qid);
+CREATE INDEX IF NOT EXISTS idx_places_native_label ON places(label_native COLLATE NOCASE);
+"""
+
+SOURCE_COLUMNS = {
+    "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
+    "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
+    "architectural_style_label_en", "inception_values", "nativewikiviewcount",
+    "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
+    "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+}
 
 REQUIRED_COLUMNS = {
     "places": {
-        "qid", "name", "native_name", "country", "city", "latitude", "longitude",
-        "registry_name", "registry_identifier", "registry_url", "thumbnail_primary",
-        "thumbnail_backups_json", "thumbnail_source_page", "thumbnail_kind",
-        "wikipedia_native", "wikipedia_english", "wiki_view_count",
+        "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
+        "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
+        "architectural_style_label_en", "inception_values", "nativewikiviewcount",
+        "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
+        "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+        "latitude", "longitude", "registry_name", "source_fields_json",
     },
-    "place_styles": {"qid", "style"},
-    "place_designations": {"qid", "designation"},
     "metadata": {"key", "value"},
 }
 
@@ -113,7 +117,7 @@ class ImportReport:
     imported_rows: int
     unique_places: int
     skipped_no_qid: int
-    skipped_coordinates: int
+    missing_coordinates: int
     previous_places: int
     total_places: int
     added_places: int
@@ -171,14 +175,6 @@ def integer(value: str) -> int:
         return 0
 
 
-def commons_url(filename: str) -> str:
-    return f"https://commons.wikimedia.org/wiki/Special:FilePath/{quote(filename)}?width=330"
-
-
-def commons_page(filename: str) -> str:
-    return f"https://commons.wikimedia.org/wiki/File:{quote(filename.replace(' ', '_'))}"
-
-
 def normalize_row(row: dict[str | None, str | list[str] | None]) -> dict[str, str]:
     normalized: dict[str, str] = {}
     for key, value in row.items():
@@ -189,47 +185,36 @@ def normalize_row(row: dict[str | None, str | list[str] | None]) -> dict[str, st
 
 
 def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] | None, str | None]:
-    point = coordinates(row)
-    if point is None:
-        return None, "coordinates"
     qid = first(row, "wikidata_qid", "qid", "item")
     if not qid:
         return None, "qid"
-
-    latitude, longitude = point
-    image_links = split_values(first(row, "image_links", "commons_file_urls"))
-    filename = first(row, "image_filename", "commons_image_filename")
-    primary = image_links[0] if image_links else (commons_url(filename) if filename else "")
-    source_page = first(row, "commons_file_page_url", "image_source_page")
-    if not source_page and filename:
-        source_page = commons_page(filename)
+    point = coordinates(row)
+    latitude, longitude = point if point is not None else (None, None)
 
     return {
-        "qid": qid,
-        "name": first(row, "label_en", "name_en", "name", "label_native") or qid,
-        "nativeName": first(row, "label_native", "label_fr", "label_ja", "name_native"),
-        "country": first(row, "country_label", "country", "country_name"),
-        "city": first(row, "city", "locality", "admin_unit"),
+        "wikidata_qid": qid,
+        "label_native": first(row, "label_native"),
+        "label_en": first(row, "label_en"),
+        "label_zh": first(row, "label_zh"),
+        "coordinates_wkt": first(row, "coordinates_wkt"),
+        "native_language_label_en": first(row, "native_language_label_en"),
+        "country_label_en": first(row, "country_label_en"),
+        "heritage_designation_labels_native": first(row, "heritage_designation_labels_native"),
+        "architectural_style_label_en": first(row, "architectural_style_label_en"),
+        "inception_values": first(row, "inception_values"),
+        "nativeWikiViewCount": integer(first(row, "nativewikiviewcount")),
+        "enWikiViewCount": integer(first(row, "enwikiviewcount")),
+        "wikiViewCount": integer(first(row, "wikiviewcount")),
+        "wikipedia_sitelinks_count": integer(first(row, "wikipedia_sitelinks_count")),
+        "source_record_urls": first(row, "source_record_urls"),
+        "nativewiki_url": first(row, "nativewiki_url"),
+        "enwiki_url": first(row, "enwiki_url"),
+        "commons_image_urls": first(row, "commons_image_urls"),
+        "official_website_urls": first(row, "official_website_urls"),
         "latitude": latitude,
         "longitude": longitude,
-        "registry": {
-            "name": registry,
-            "identifier": first(row, "source_identifier", "merimee_id", "registry_id", "identifier"),
-            "url": first(row, "source_record_url", "merimee_pop_url", "registry_url"),
-        },
-        "designations": split_values(first(row, "heritage_designation_labels", "heritage_designation", "designation")),
-        "styles": split_values(first(row, "architectural_style_labels", "architectural_style", "styles")),
-        "thumbnail": {
-            "primary": primary,
-            "backups": image_links[1:],
-            "sourcePage": source_page,
-            "kind": "commons" if filename or "wikimedia.org" in primary else ("external" if primary else "generated"),
-        },
-        "wikipedia": {
-            "native": first(row, "native_wikipedia_url", "frwiki_url", "jawiki_url"),
-            "english": first(row, "enwiki_url", "english_wikipedia_url"),
-        },
-        "wikiViewCount": integer(first(row, "wikiviewcount", "wiki_view_count")),
+        "registry_name": registry,
+        "source_fields_json": json.dumps(row, ensure_ascii=False, separators=(",", ":")),
     }, None
 
 
@@ -257,58 +242,132 @@ def csv_rows(path: Path) -> Iterator[dict[str, str]]:
                 yield normalize_row(raw_row)
 
 
-def insert_place(connection: sqlite3.Connection, place: dict[str, Any]) -> None:
-    registry = place["registry"]
-    thumbnail = place["thumbnail"]
-    wikipedia = place["wikipedia"]
-    qid = place["qid"]
+def quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def ensure_source_columns(connection: sqlite3.Connection, row: dict[str, str]) -> list[str]:
+    existing = {item[1].lower() for item in connection.execute("PRAGMA table_info(places)")}
+    extra: list[str] = []
+    for column in row:
+        if column not in existing:
+            connection.execute(f"ALTER TABLE places ADD COLUMN {quote_identifier(column)} TEXT")
+            existing.add(column)
+        if column not in SOURCE_COLUMNS:
+            extra.append(column)
+    return extra
+
+
+def insert_place(
+    connection: sqlite3.Connection,
+    place: dict[str, Any],
+    source_row: dict[str, str],
+    extra_columns: list[str],
+) -> None:
+    qid = place["wikidata_qid"]
     connection.execute(
         """
         INSERT INTO places (
-          qid, name, native_name, country, city, latitude, longitude,
-          registry_name, registry_identifier, registry_url,
-          thumbnail_primary, thumbnail_backups_json, thumbnail_source_page, thumbnail_kind,
-          wikipedia_native, wikipedia_english, wiki_view_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(qid) DO UPDATE SET
-          name=excluded.name, native_name=excluded.native_name, country=excluded.country,
-          city=excluded.city, latitude=excluded.latitude, longitude=excluded.longitude,
-          registry_name=excluded.registry_name, registry_identifier=excluded.registry_identifier,
-          registry_url=excluded.registry_url, thumbnail_primary=excluded.thumbnail_primary,
-          thumbnail_backups_json=excluded.thumbnail_backups_json,
-          thumbnail_source_page=excluded.thumbnail_source_page,
-          thumbnail_kind=excluded.thumbnail_kind, wikipedia_native=excluded.wikipedia_native,
-          wikipedia_english=excluded.wikipedia_english, wiki_view_count=excluded.wiki_view_count
+          wikidata_qid, label_native, label_en, label_zh, coordinates_wkt,
+          native_language_label_en, country_label_en, heritage_designation_labels_native,
+          architectural_style_label_en, inception_values, nativeWikiViewCount, enWikiViewCount,
+          wikiViewCount, wikipedia_sitelinks_count, source_record_urls, nativewiki_url, enwiki_url,
+          commons_image_urls, official_website_urls, latitude, longitude, registry_name,
+          source_fields_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(wikidata_qid) DO UPDATE SET
+          label_native=excluded.label_native, label_en=excluded.label_en, label_zh=excluded.label_zh,
+          coordinates_wkt=excluded.coordinates_wkt,
+          native_language_label_en=excluded.native_language_label_en,
+          country_label_en=excluded.country_label_en,
+          heritage_designation_labels_native=excluded.heritage_designation_labels_native,
+          architectural_style_label_en=excluded.architectural_style_label_en,
+          inception_values=excluded.inception_values,
+          nativeWikiViewCount=excluded.nativeWikiViewCount,
+          enWikiViewCount=excluded.enWikiViewCount, wikiViewCount=excluded.wikiViewCount,
+          wikipedia_sitelinks_count=excluded.wikipedia_sitelinks_count,
+          source_record_urls=excluded.source_record_urls, nativewiki_url=excluded.nativewiki_url,
+          enwiki_url=excluded.enwiki_url, commons_image_urls=excluded.commons_image_urls,
+          official_website_urls=excluded.official_website_urls, latitude=excluded.latitude,
+          longitude=excluded.longitude, registry_name=excluded.registry_name,
+          source_fields_json=excluded.source_fields_json
         """,
-        (
-            qid, place["name"], place["nativeName"], place["country"], place["city"],
-            place["latitude"], place["longitude"], registry["name"], registry["identifier"],
-            registry["url"], thumbnail["primary"],
-            json.dumps(thumbnail["backups"], ensure_ascii=False, separators=(",", ":")),
-            thumbnail["sourcePage"], thumbnail["kind"], wikipedia["native"],
-            wikipedia["english"], place["wikiViewCount"],
-        ),
+        tuple(place[key] for key in (
+            "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
+            "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
+            "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
+            "enWikiViewCount", "wikiViewCount", "wikipedia_sitelinks_count", "source_record_urls",
+            "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+            "latitude", "longitude", "registry_name", "source_fields_json",
+        )),
     )
-    connection.execute("DELETE FROM place_styles WHERE qid = ?", (qid,))
-    connection.execute("DELETE FROM place_designations WHERE qid = ?", (qid,))
-    connection.executemany(
-        "INSERT OR IGNORE INTO place_styles (qid, style) VALUES (?, ?)",
-        ((qid, style) for style in place["styles"]),
-    )
-    connection.executemany(
-        "INSERT OR IGNORE INTO place_designations (qid, designation) VALUES (?, ?)",
-        ((qid, item) for item in place["designations"]),
-    )
+    if extra_columns:
+        assignments = ", ".join(f"{quote_identifier(column)} = ?" for column in extra_columns)
+        values = [source_row[column] for column in extra_columns]
+        connection.execute(
+            f"UPDATE places SET {assignments} WHERE wikidata_qid = ?",
+            [*values, qid],
+        )
 
 
 def validate_database(connection: sqlite3.Connection) -> None:
     for table, required in REQUIRED_COLUMNS.items():
-        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        columns = {row[1].lower() for row in connection.execute(f"PRAGMA table_info({table})")}
         if not columns:
             raise ValueError(f"The selected file is not a Heritage Atlas database (missing {table}).")
         missing = required - columns
         if missing:
             raise ValueError(f"The database table {table} is missing columns: {', '.join(sorted(missing))}.")
+
+
+def create_indexes(connection: sqlite3.Connection) -> None:
+    for statement in INDEXES.split(";"):
+        if statement.strip():
+            connection.execute(statement)
+
+
+def migrate_legacy_database(connection: sqlite3.Connection) -> None:
+    columns = {row[1].lower() for row in connection.execute("PRAGMA table_info(places)")}
+    if "wikidata_qid" in columns:
+        validate_database(connection)
+        create_indexes(connection)
+        return
+    if not {"qid", "name", "latitude", "longitude"}.issubset(columns):
+        raise ValueError("The selected file is not a compatible Heritage Atlas database.")
+
+    connection.execute("BEGIN")
+    try:
+        connection.execute(PLACES_TABLE_SQL.format(table="places_v2"))
+        connection.execute(
+            """
+            INSERT INTO places_v2 (
+              wikidata_qid, label_native, label_en, coordinates_wkt,
+              country_label_en, heritage_designation_labels_native,
+              architectural_style_label_en, nativeWikiViewCount, enWikiViewCount,
+              wikiViewCount, wikipedia_sitelinks_count, source_record_urls,
+              nativewiki_url, enwiki_url, commons_image_urls, latitude, longitude,
+              registry_name, source_fields_json
+            )
+            SELECT
+              p.qid, COALESCE(NULLIF(p.native_name, ''), p.name, p.qid), p.name, '',
+              p.country,
+              COALESCE((SELECT group_concat(designation, ' | ') FROM place_designations d WHERE d.qid = p.qid), ''),
+              COALESCE((SELECT group_concat(style, ' | ') FROM place_styles s WHERE s.qid = p.qid), ''),
+              0, 0, p.wiki_view_count,
+              (CASE WHEN COALESCE(p.wikipedia_native, '') <> '' THEN 1 ELSE 0 END) +
+                (CASE WHEN COALESCE(p.wikipedia_english, '') <> '' THEN 1 ELSE 0 END),
+              p.registry_url, p.wikipedia_native, p.wikipedia_english,
+              p.thumbnail_primary, p.latitude, p.longitude, p.registry_name, '{}'
+            FROM places p
+            """
+        )
+        connection.execute("DROP TABLE places")
+        connection.execute("ALTER TABLE places_v2 RENAME TO places")
+        create_indexes(connection)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
 
 
 def file_sha256(path: Path) -> str:
@@ -319,13 +378,21 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def default_dataset_url(output_path: Path) -> str:
+    """Return a site-relative URL for public assets, otherwise the filename."""
+    for parent in output_path.parents:
+        if parent.name.lower() == "public":
+            return output_path.relative_to(parent).as_posix()
+    return output_path.name
+
+
 def write_manifest(options: ImportOptions, report: ImportReport) -> None:
     if options.manifest_path is None:
         return
     manifest = {
         "version": options.version,
         "name": options.name,
-        "datasetUrl": options.dataset_url or options.output_path.name,
+        "datasetUrl": options.dataset_url or default_dataset_url(options.output_path),
         "bytes": report.bytes,
         "sha256": report.sha256,
         "recordCount": report.total_places,
@@ -346,29 +413,34 @@ def _import_database(
     progress: ProgressCallback | None,
     cancel: threading.Event | None,
 ) -> tuple[int, int, int, int, int, int, int]:
-    input_rows = imported_rows = skipped_no_qid = skipped_coordinates = 0
+    input_rows = imported_rows = skipped_no_qid = missing_coordinates = 0
     with closing(sqlite3.connect(database_path)) as connection:
         if create_new:
-            connection.executescript(SCHEMA)
+            connection.executescript(SCHEMA + PLACES_TABLE_SQL.format(table="places") + INDEXES)
         else:
-            validate_database(connection)
+            migrate_legacy_database(connection)
         previous_places = connection.execute("SELECT COUNT(*) FROM places").fetchone()[0]
         connection.execute("CREATE TEMP TABLE imported_qids (qid TEXT PRIMARY KEY) WITHOUT ROWID")
         connection.execute("BEGIN")
+        extra_columns: list[str] | None = None
         try:
             for row in csv_rows(options.input_path):
                 if cancel is not None and cancel.is_set():
                     raise ImportCancelled()
                 input_rows += 1
+                if extra_columns is None:
+                    extra_columns = ensure_source_columns(connection, row)
                 place, reason = place_from_row(row, options.registry)
                 if place is None:
-                    if reason == "qid":
-                        skipped_no_qid += 1
-                    else:
-                        skipped_coordinates += 1
+                    skipped_no_qid += 1
                 else:
-                    insert_place(connection, place)
-                    connection.execute("INSERT OR IGNORE INTO imported_qids (qid) VALUES (?)", (place["qid"],))
+                    if place["latitude"] is None or place["longitude"] is None:
+                        missing_coordinates += 1
+                    insert_place(connection, place, row, extra_columns)
+                    connection.execute(
+                        "INSERT OR IGNORE INTO imported_qids (qid) VALUES (?)",
+                        (place["wikidata_qid"],),
+                    )
                     imported_rows += 1
                 if progress is not None and input_rows % 250 == 0:
                     progress(input_rows)
@@ -393,7 +465,7 @@ def _import_database(
         if create_new:
             connection.execute("VACUUM")
     return (
-        input_rows, imported_rows, skipped_no_qid, skipped_coordinates,
+        input_rows, imported_rows, skipped_no_qid, missing_coordinates,
         previous_places, unique_places, total_places,
     )
 
@@ -439,14 +511,14 @@ def import_csv(
         if use_temporary:
             working_path.unlink(missing_ok=True)
 
-    input_rows, imported_rows, no_qid, bad_coordinates, previous, unique_places, total = values
+    input_rows, imported_rows, no_qid, missing_coordinates, previous, unique_places, total = values
     added = max(0, total - previous)
     report = ImportReport(
         input_rows=input_rows,
         imported_rows=imported_rows,
         unique_places=unique_places,
         skipped_no_qid=no_qid,
-        skipped_coordinates=bad_coordinates,
+        missing_coordinates=missing_coordinates,
         previous_places=previous,
         total_places=total,
         added_places=added,
@@ -459,13 +531,12 @@ def import_csv(
 
 
 def report_text(report: ImportReport) -> str:
-    skipped = report.skipped_no_qid + report.skipped_coordinates
     return (
         f"Imported {report.unique_places:,} unique places from {report.input_rows:,} CSV rows.\n"
         f"Added {report.added_places:,}; updated {report.updated_places:,}; "
         f"database total {report.total_places:,}.\n"
-        f"Skipped {skipped:,} rows ({report.skipped_no_qid:,} without a QID, "
-        f"{report.skipped_coordinates:,} without valid coordinates).\n"
+        f"Skipped {report.skipped_no_qid:,} rows without a QID; "
+        f"kept {report.missing_coordinates:,} places without map coordinates.\n"
         f"SQLite size: {report.bytes:,} bytes\nSHA-256: {report.sha256}"
     )
 
