@@ -120,28 +120,30 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
     )
   }
 
-  const imageSource = variant === 'hero' ? fullResolutionImageUrl(source) : thumbnailImageUrl(source)
+  const imageSource = variant === 'hero' ? fullResolutionImageUrl(source) : thumbnailImageUrl(source, 384)
   const image = <img className={className} src={imageSource} alt={place.labelNative} loading={variant === 'hero' ? 'eager' : 'lazy'} onError={() => setIndex((current) => current + 1)} />
   if (variant === 'card') return image
   return <a href={fullResolutionImageUrl(source)} target="_blank" rel="noreferrer" className="thumbnail-link">{image}</a>
 }
 
-function PlaceCard({ place }: { place: Place }) {
+function PlaceCard({ place, sort }: { place: Place; sort: PlaceFilters['sort'] }) {
   return (
     <article className="place-card">
       <a className="card-button" href={placeHref(place.qid)}>
         <Thumbnail place={place} />
-        <span className="card-copy">
+        <div className="card-copy">
           <strong>{place.labelNative}</strong>
           {(place.labelEn || place.labelZh) && <span className="place-subheading">{[place.labelEn, place.labelZh].filter(Boolean).join(' · ')}</span>}
           <span>{place.countryLabelEn || 'Location not recorded'}</span>
           <span className="badge">{place.registryName}</span>
-        </span>
+          <div className="card-meta">
+            {place.designations.slice(0, 2).map((item) => <span key={item}>{item}</span>)}
+            {sort === 'sitelinks'
+              ? <span>{place.wikipediaSitelinksCount.toLocaleString()} Wikipedia sitelinks</span>
+              : place.wikiViewCount ? <span>{formatViews(place.wikiViewCount)} Wikipedia views</span> : null}
+          </div>
+        </div>
       </a>
-      <div className="card-meta">
-        {place.designations.slice(0, 2).map((item) => <span key={item}>{item}</span>)}
-        {place.wikiViewCount ? <span>{formatViews(place.wikiViewCount)} Wikipedia views</span> : null}
-      </div>
     </article>
   )
 }
@@ -269,6 +271,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const mapPlaces = useMemo(() => bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds])
+  const mapDataKey = JSON.stringify(filters)
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
   const from = result.total ? page * PAGE_SIZE + 1 : 0
   const to = Math.min((page + 1) * PAGE_SIZE, result.total)
@@ -302,15 +305,15 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         <label>Style keyword<input value={filters.style} onChange={(event) => updateFilters({ style: event.target.value })} placeholder="e.g. Baroque" /></label>
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Registry<select value={filters.registry} onChange={(event) => updateFilters({ registry: event.target.value })}><option value="">All registries</option>{stats.registries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="views">Wikipedia views</option><option value="name">Name</option></select></label>
+        <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="views">Wikipedia views</option><option value="sitelinks">Wikipedia sitelinks</option><option value="name">Name</option></select></label>
       </section>
 
       <p className="results-summary">{result.total.toLocaleString()} places match. Results {from.toLocaleString()}–{to.toLocaleString()} are loaded locally; the map clusters all matching places in the current view.</p>
 
       <section className="atlas-layout">
-        <MapPanel places={mapPlaces} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
+        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
         <aside className="place-list" aria-label="Heritage place results">
-          {result.items.map((place) => <PlaceCard key={place.qid} place={place} />)}
+          {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} />)}
           {!result.items.length && <p className="notice">No places match these filters.</p>}
           {result.total > PAGE_SIZE && <nav className="pagination" aria-label="Results pagination">
             <button onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0}>← Previous</button>

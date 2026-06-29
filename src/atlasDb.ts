@@ -2,7 +2,22 @@ import { loadSqlJs, type SqlDatabase, type SqlValue } from './sqlite'
 import type { AtlasStats, MapBounds, Place, PlaceFilters, PlaceSearchPage } from './types'
 
 const DELIMITER = '\u001f'
+const MAP_AGGREGATE_CELL_SIZE_PX = 72
+const MAP_TILE_SIZE_PX = 256
+const INDIVIDUAL_MARKER_ZOOM = 7
 type Row = Record<string, SqlValue | undefined>
+
+function mapBucketCellSize(zoom: number): number {
+  return (360 * MAP_AGGREGATE_CELL_SIZE_PX) / (MAP_TILE_SIZE_PX * 2 ** Math.max(0, Math.floor(zoom)))
+}
+
+function snapDown(value: number, origin: number, cellSize: number): number {
+  return origin + Math.floor((value - origin) / cellSize) * cellSize
+}
+
+function snapUp(value: number, origin: number, cellSize: number): number {
+  return origin + Math.ceil((value - origin) / cellSize) * cellSize
+}
 
 function firstResult(database: SqlDatabase, sql: string, params: SqlValue[] = []): Row[] {
   const result = database.exec(sql, params)[0]
@@ -71,22 +86,24 @@ function toPlace(row: Row): Place {
 }
 
 function toMapPlace(row: Row): Place {
+  const isMapAggregate = asNumber(row.is_map_aggregate) === 1
   return {
     qid: asString(row.qid),
-    labelNative: displayName(row),
+    labelNative: isMapAggregate ? '' : displayName(row),
     labelEn: asString(row.label_en) || undefined,
     labelZh: asString(row.label_zh) || undefined,
     latitude: asOptionalNumber(row.latitude),
     longitude: asOptionalNumber(row.longitude),
     countryLabelEn: asString(row.country_label_en) || undefined,
-    designations: [],
+    designations: splitList(row.heritage_designation_labels_native),
     styles: [],
     inceptionValues: [],
     nativeWikiViewCount: 0,
     enWikiViewCount: 0,
     wikiViewCount: asNumber(row.wiki_view_count) || undefined,
     mapPointCount: asNumber(row.map_point_count) || 1,
-    wikipediaSitelinksCount: 0,
+    mapAggregate: isMapAggregate,
+    wikipediaSitelinksCount: asNumber(row.wikipedia_sitelinks_count),
     sourceRecordUrls: [],
     commonsImageUrls: splitList(row.commons_image_urls),
     officialWebsiteUrls: [],
@@ -193,7 +210,9 @@ export class AtlasDatabase {
     const countRow = firstResult(this.database, `SELECT COUNT(*) AS count FROM places p ${where.sql}`, where.params)[0]
     const order = filters.sort === 'name'
       ? "COALESCE(NULLIF(p.label_native, ''), NULLIF(p.label_en, ''), p.wikidata_qid) COLLATE NOCASE ASC"
-      : 'p.wikiViewCount DESC, p.label_native COLLATE NOCASE ASC, p.wikidata_qid ASC'
+      : filters.sort === 'sitelinks'
+        ? 'p.wikipedia_sitelinks_count DESC, p.label_native COLLATE NOCASE ASC, p.wikidata_qid ASC'
+        : 'p.wikiViewCount DESC, p.label_native COLLATE NOCASE ASC, p.wikidata_qid ASC'
     const offset = Math.max(0, page) * pageSize
     const rows = firstResult(
       this.database,
@@ -209,45 +228,64 @@ export class AtlasDatabase {
   }
 
   getMapPlaces(filters: PlaceFilters, bounds: MapBounds, limit = 2000): Place[] {
-    const where = filtersToWhere(filters, bounds)
+    const unboundedWhere = filtersToWhere(filters)
     const countRow = firstResult(
       this.database,
-      `SELECT COUNT(*) AS count FROM places p ${where.sql}`,
-      where.params,
+      `SELECT COUNT(*) AS count FROM places p ${unboundedWhere.sql}`,
+      unboundedWhere.params,
     )[0]
     const placeCount = asNumber(countRow?.count)
+    const mapOrderColumn = filters.sort === 'sitelinks' ? 'wikipedia_sitelinks_count' : 'wiki_view_count'
 
-    if (placeCount > limit) {
-      const longitudeCellSize = Math.max((bounds.east - bounds.west) / 36, 0.000_001)
-      const latitudeCellSize = Math.max((bounds.north - bounds.south) / 24, 0.000_001)
+    if (placeCount > limit && bounds.zoom < INDIVIDUAL_MARKER_ZOOM) {
+      // Anchor buckets to a zoom-level world grid, then load complete cells.
+      // Their membership and centroid therefore stay fixed while the viewport
+      // pans; only a zoom change selects a different grid resolution.
+      const cellSize = Math.max(mapBucketCellSize(bounds.zoom), 0.000_001)
+      const bucketBounds: MapBounds = {
+        ...bounds,
+        west: snapDown(bounds.west, -180, cellSize),
+        east: snapUp(bounds.east, -180, cellSize),
+        south: snapDown(bounds.south, -90, cellSize),
+        north: snapUp(bounds.north, -90, cellSize),
+      }
+      const where = filtersToWhere(filters, bucketBounds)
+      const bucketZoom = Math.max(0, Math.floor(bounds.zoom))
       const rows = firstResult(
         this.database,
         `WITH matched AS (
-           SELECT p.latitude, p.longitude, p.wikiViewCount,
-                  CAST((p.longitude - ?) / ? AS INTEGER) AS longitude_bucket,
-                  CAST((p.latitude - ?) / ? AS INTEGER) AS latitude_bucket
+           SELECT p.latitude, p.longitude, p.wikiViewCount, p.wikipedia_sitelinks_count,
+                  CAST((p.longitude + 180.0) / ? AS INTEGER) AS longitude_bucket,
+                  CAST((p.latitude + 90.0) / ? AS INTEGER) AS latitude_bucket
            FROM places p ${where.sql}
          )
-         SELECT 'map-bucket-' || longitude_bucket || '-' || latitude_bucket AS qid,
+         SELECT 'map-bucket-${bucketZoom}-' || longitude_bucket || '-' || latitude_bucket AS qid,
                 AVG(latitude) AS latitude, AVG(longitude) AS longitude,
-                MAX(wikiViewCount) AS wiki_view_count, COUNT(*) AS map_point_count,
+                MAX(wikiViewCount) AS wiki_view_count,
+                MAX(wikipedia_sitelinks_count) AS wikipedia_sitelinks_count,
+                COUNT(*) AS map_point_count,
+                1 AS is_map_aggregate,
                 '' AS label_native, '' AS country_label_en,
+                '' AS heritage_designation_labels_native,
                 '' AS registry_name, '' AS commons_image_urls
          FROM matched
          GROUP BY longitude_bucket, latitude_bucket
-         ORDER BY wiki_view_count DESC, qid ASC`,
-        [bounds.west, longitudeCellSize, bounds.south, latitudeCellSize, ...where.params],
+         ORDER BY ${mapOrderColumn} DESC, qid ASC`,
+        [cellSize, cellSize, ...where.params],
       )
       return rows.map(toMapPlace)
     }
 
+    const where = filtersToWhere(filters, bounds)
     const rows = firstResult(
       this.database,
       `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
               p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls,
-              p.wikiViewCount AS wiki_view_count
+              p.heritage_designation_labels_native,
+              p.wikiViewCount AS wiki_view_count, p.wikipedia_sitelinks_count,
+              0 AS is_map_aggregate
        FROM places p ${where.sql}
-       ORDER BY p.wikiViewCount DESC, p.wikidata_qid ASC`,
+       ORDER BY p.${filters.sort === 'sitelinks' ? 'wikipedia_sitelinks_count' : 'wikiViewCount'} DESC, p.wikidata_qid ASC`,
       where.params,
     )
     return rows.map(toMapPlace)

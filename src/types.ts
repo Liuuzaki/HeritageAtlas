@@ -15,6 +15,7 @@ export type Place = {
   enWikiViewCount: number
   wikiViewCount?: number
   mapPointCount?: number
+  mapAggregate?: boolean
   wikipediaSitelinksCount: number
   sourceRecordUrls: string[]
   nativeWikiUrl?: string
@@ -54,7 +55,7 @@ export type PlaceFilters = {
   country: string
   registry: string
   style: string
-  sort: 'views' | 'name'
+  sort: 'views' | 'sitelinks' | 'name'
 }
 
 export type PlaceSearchPage = {
@@ -68,6 +69,8 @@ export type MapBounds = {
   north: number
   east: number
   zoom: number
+  pixelWidth: number
+  pixelHeight: number
 }
 
 export type AtlasStats = {
