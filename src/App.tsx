@@ -146,21 +146,6 @@ function PlaceCard({ place }: { place: Place }) {
   )
 }
 
-function ExternalLinks({ place }: { place: Place }) {
-  const links = [
-    ...place.sourceRecordUrls.map((url, index) => ({ url, label: `Source record${place.sourceRecordUrls.length > 1 ? ` ${index + 1}` : ''}` })),
-    ...(place.nativeWikiUrl ? [{ url: place.nativeWikiUrl, label: 'Native Wikipedia' }] : []),
-    ...(place.enWikiUrl ? [{ url: place.enWikiUrl, label: 'English Wikipedia' }] : []),
-    ...place.officialWebsiteUrls.map((url, index) => ({ url, label: `Official website${place.officialWebsiteUrls.length > 1 ? ` ${index + 1}` : ''}` })),
-  ]
-  return (
-    <div className="external-links">
-      {links.map(({ url, label }) => <a key={`${label}-${url}`} href={url} target="_blank" rel="noreferrer">{label}</a>)}
-      <a href={`https://www.wikidata.org/wiki/${place.qid}`} target="_blank" rel="noreferrer">Wikidata item</a>
-    </div>
-  )
-}
-
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return <div className="detail-row"><dt>{label}</dt><dd>{children}</dd></div>
 }
@@ -169,19 +154,36 @@ function TextList({ values }: { values: string[] }) {
   return values.length ? <ul>{values.map((value) => <li key={value}>{value}</li>)}</ul> : <>Not recorded</>
 }
 
-function LinkList({ values, label }: { values: string[]; label: string }) {
-  return values.length ? <ul>{values.map((url, index) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{label} {index + 1}</a></li>)}</ul> : <>Not recorded</>
+function LinkList({ values }: { values: string[] }) {
+  const uniqueValues = [...new Set(values)]
+  return uniqueValues.length ? <ul>{uniqueValues.map((url) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}</ul> : <>Not recorded</>
 }
 
-function PlacePage({ database, qid }: { database: AtlasDatabase; qid: string }) {
+function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: string; onClose: () => void }) {
   const place = useMemo(() => database.getPlace(qid), [database, qid])
 
   useEffect(() => {
     document.title = place ? `${place.labelNative} · Heritage Atlas` : 'Record not found · Heritage Atlas'
-  }, [place])
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.title = 'Heritage Atlas'
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [onClose, place])
 
   if (!place) {
-    return <main className="record-page"><a href="#/" className="back-link">← Back to explore</a><h1>Record not found</h1><p>This link does not match the installed atlas dataset.</p></main>
+    return (
+      <div className="record-overlay" onMouseDown={onClose}>
+        <section className="record-panel record-panel-empty" role="dialog" aria-modal="true" aria-labelledby="record-not-found-title" onMouseDown={(event) => event.stopPropagation()}>
+          <button className="panel-close" type="button" onClick={onClose} aria-label="Close place details">&times;</button>
+          <h1 id="record-not-found-title">Record not found</h1>
+          <p>This link does not match the installed atlas dataset.</p>
+        </section>
+      </div>
+    )
   }
 
   const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
@@ -191,57 +193,58 @@ function PlacePage({ database, qid }: { database: AtlasDatabase; qid: string }) 
   )
 
   return (
-    <main className="record-page">
-      <a href="#/" className="back-link">← Back to explore</a>
-      <article className="record-shell">
-        <section className="record-hero-wrap">
-          <Thumbnail place={place} variant="hero" />
-          <div>
-            <p className="eyebrow">{place.registryName}</p>
-            <h1>{place.labelNative}</h1>
-            {(place.labelEn || place.labelZh) && <p className="translated-name">
-              {place.labelEn && <span lang="en">{place.labelEn}</span>}
-              {place.labelZh && <span lang="zh">{place.labelZh}</span>}
-            </p>}
-            {place.countryLabelEn && <p className="record-location">{place.countryLabelEn}</p>}
-            <ExternalLinks place={place} />
-          </div>
-        </section>
-        <section className="record-grid" aria-label="Record details">
-          <dl>
-            <DetailRow label="Native label (label_native)">{place.labelNative || 'Not recorded'}</DetailRow>
-            <DetailRow label="English label (label_en)">{place.labelEn || 'Not recorded'}</DetailRow>
-            <DetailRow label="Chinese label (label_zh)">{place.labelZh || 'Not recorded'}</DetailRow>
-            <DetailRow label="Native language">{place.nativeLanguageLabelEn || 'Not recorded'}</DetailRow>
-            <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
-            <DetailRow label="Heritage designation"><TextList values={place.designations} /></DetailRow>
-            <DetailRow label="Architectural style"><TextList values={place.styles} /></DetailRow>
-            <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
-          </dl>
-          <dl>
-            <DetailRow label="Coordinates (WKT)">{place.coordinatesWkt || 'Not recorded'}</DetailRow>
-            <DetailRow label="Map coordinates">{hasCoordinates ? <a href={`https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=16/${place.latitude}/${place.longitude}`} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
-            <DetailRow label="Native Wikipedia views">{place.nativeWikiViewCount.toLocaleString()}</DetailRow>
-            <DetailRow label="English Wikipedia views">{place.enWikiViewCount.toLocaleString()}</DetailRow>
-            <DetailRow label="Combined Wikipedia views">{(place.wikiViewCount ?? 0).toLocaleString()}</DetailRow>
-            <DetailRow label="Wikipedia sitelinks">{place.wikipediaSitelinksCount.toLocaleString()}</DetailRow>
-            <DetailRow label="Wikidata QID"><a href={`https://www.wikidata.org/wiki/${place.qid}`} target="_blank" rel="noreferrer">{place.qid}</a></DetailRow>
-            <DetailRow label="Registry used for import">{place.registryName}</DetailRow>
-          </dl>
-          <dl>
-            <DetailRow label="Source record URLs"><LinkList values={place.sourceRecordUrls} label="Source record" /></DetailRow>
-            <DetailRow label="Native Wikipedia URL">{place.nativeWikiUrl ? <a href={place.nativeWikiUrl} target="_blank" rel="noreferrer">Open native Wikipedia</a> : 'Not recorded'}</DetailRow>
-            <DetailRow label="English Wikipedia URL">{place.enWikiUrl ? <a href={place.enWikiUrl} target="_blank" rel="noreferrer">Open English Wikipedia</a> : 'Not recorded'}</DetailRow>
-            <DetailRow label="Commons image URLs"><LinkList values={place.commonsImageUrls} label="Commons image" /></DetailRow>
-            <DetailRow label="Official website URLs"><LinkList values={place.officialWebsiteUrls} label="Official website" /></DetailRow>
-          </dl>
-          {additionalFields.length > 0 && <dl>
-            {additionalFields.map(([key, value]) => <DetailRow key={key} label={key}>{value}</DetailRow>)}
-          </dl>}
-        </section>
-      </article>
-      <footer><span>Map: © OpenStreetMap contributors.</span><span>Images remain hosted by their original sources.</span></footer>
-    </main>
+    <div className="record-overlay" onMouseDown={onClose}>
+      <section className="record-panel" role="dialog" aria-modal="true" aria-labelledby="place-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="panel-close" type="button" onClick={onClose} aria-label="Close place details">&times;</button>
+        <article className="record-shell">
+          <section className="record-hero-wrap">
+            <Thumbnail place={place} variant="hero" />
+            <div>
+              <p className="eyebrow">{place.registryName}</p>
+              <h1 id="place-detail-title">{place.labelNative}</h1>
+              {(place.labelEn || place.labelZh) && <p className="translated-name">
+                {place.labelEn && <span lang="en">{place.labelEn}</span>}
+                {place.labelZh && <span lang="zh">{place.labelZh}</span>}
+              </p>}
+              {place.countryLabelEn && <p className="record-location">{place.countryLabelEn}</p>}
+            </div>
+          </section>
+          <section className="record-grid" aria-label="Record details">
+            <dl>
+              <DetailRow label="Native label (label_native)">{place.labelNative || 'Not recorded'}</DetailRow>
+              <DetailRow label="English label (label_en)">{place.labelEn || 'Not recorded'}</DetailRow>
+              <DetailRow label="Chinese label (label_zh)">{place.labelZh || 'Not recorded'}</DetailRow>
+              <DetailRow label="Native language">{place.nativeLanguageLabelEn || 'Not recorded'}</DetailRow>
+              <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
+              <DetailRow label="Heritage designation"><TextList values={place.designations} /></DetailRow>
+              <DetailRow label="Architectural style"><TextList values={place.styles} /></DetailRow>
+              <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
+            </dl>
+            <dl>
+              <DetailRow label="Coordinates (WKT)">{place.coordinatesWkt || 'Not recorded'}</DetailRow>
+              <DetailRow label="Map coordinates">{hasCoordinates ? <a href={`https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=16/${place.latitude}/${place.longitude}`} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
+              <DetailRow label="Native Wikipedia views">{place.nativeWikiViewCount.toLocaleString()}</DetailRow>
+              <DetailRow label="English Wikipedia views">{place.enWikiViewCount.toLocaleString()}</DetailRow>
+              <DetailRow label="Combined Wikipedia views">{(place.wikiViewCount ?? 0).toLocaleString()}</DetailRow>
+              <DetailRow label="Wikipedia sitelinks">{place.wikipediaSitelinksCount.toLocaleString()}</DetailRow>
+              <DetailRow label="Wikidata QID"><a href={`https://www.wikidata.org/wiki/${place.qid}`} target="_blank" rel="noreferrer">{place.qid}</a></DetailRow>
+              <DetailRow label="Registry used for import">{place.registryName}</DetailRow>
+            </dl>
+            <dl>
+              <DetailRow label="Source record URLs"><LinkList values={place.sourceRecordUrls} /></DetailRow>
+              <DetailRow label="Native Wikipedia URL">{place.nativeWikiUrl ? <a href={place.nativeWikiUrl} target="_blank" rel="noreferrer">{place.nativeWikiUrl}</a> : 'Not recorded'}</DetailRow>
+              <DetailRow label="English Wikipedia URL">{place.enWikiUrl ? <a href={place.enWikiUrl} target="_blank" rel="noreferrer">{place.enWikiUrl}</a> : 'Not recorded'}</DetailRow>
+              <DetailRow label="Commons image URLs"><LinkList values={place.commonsImageUrls} /></DetailRow>
+              <DetailRow label="Official website URLs"><LinkList values={place.officialWebsiteUrls} /></DetailRow>
+            </dl>
+            {additionalFields.length > 0 && <dl>
+              {additionalFields.map(([key, value]) => <DetailRow key={key} label={key}>{value}</DetailRow>)}
+            </dl>}
+          </section>
+        </article>
+        <footer><span>Map: © OpenStreetMap contributors.</span><span>Images remain hosted by their original sources.</span></footer>
+      </section>
+    </div>
   )
 }
 
@@ -490,7 +493,10 @@ export default function App() {
     return <Installer manifest={manifest} current={installed} progress={progress} error={error} onDownload={downloadLatest} onImport={importAtlas} />
   }
 
-  if (route.kind === 'place') return <PlacePage database={database} qid={route.qid} />
+  const closePlace = () => { window.location.hash = '/' }
 
-  return <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} updating={progress.stage !== 'idle'} updateNote={updateNote} />
+  return <>
+    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} updating={progress.stage !== 'idle'} updateNote={updateNote} />
+    {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePlace} />}
+  </>
 }

@@ -90,12 +90,13 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
     }).addTo(map)
 
     const markers = L.markerClusterGroup({
-      chunkedLoading: true,
-      chunkInterval: 80,
-      chunkDelay: 20,
-      maxClusterRadius: 48,
+      chunkedLoading: false,
+      chunkInterval: 20,
+      chunkDelay: 10,
+      maxClusterRadius: 20,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
+      disableClusteringAtZoom: 8,
     })
     markers.addTo(map)
 
