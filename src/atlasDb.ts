@@ -85,6 +85,7 @@ function toMapPlace(row: Row): Place {
     nativeWikiViewCount: 0,
     enWikiViewCount: 0,
     wikiViewCount: asNumber(row.wiki_view_count) || undefined,
+    mapPointCount: asNumber(row.map_point_count) || 1,
     wikipediaSitelinksCount: 0,
     sourceRecordUrls: [],
     commonsImageUrls: splitList(row.commons_image_urls),
@@ -209,14 +210,45 @@ export class AtlasDatabase {
 
   getMapPlaces(filters: PlaceFilters, bounds: MapBounds, limit = 2000): Place[] {
     const where = filtersToWhere(filters, bounds)
+    const countRow = firstResult(
+      this.database,
+      `SELECT COUNT(*) AS count FROM places p ${where.sql}`,
+      where.params,
+    )[0]
+    const placeCount = asNumber(countRow?.count)
+
+    if (placeCount > limit) {
+      const longitudeCellSize = Math.max((bounds.east - bounds.west) / 36, 0.000_001)
+      const latitudeCellSize = Math.max((bounds.north - bounds.south) / 24, 0.000_001)
+      const rows = firstResult(
+        this.database,
+        `WITH matched AS (
+           SELECT p.latitude, p.longitude, p.wikiViewCount,
+                  CAST((p.longitude - ?) / ? AS INTEGER) AS longitude_bucket,
+                  CAST((p.latitude - ?) / ? AS INTEGER) AS latitude_bucket
+           FROM places p ${where.sql}
+         )
+         SELECT 'map-bucket-' || longitude_bucket || '-' || latitude_bucket AS qid,
+                AVG(latitude) AS latitude, AVG(longitude) AS longitude,
+                MAX(wikiViewCount) AS wiki_view_count, COUNT(*) AS map_point_count,
+                '' AS label_native, '' AS country_label_en,
+                '' AS registry_name, '' AS commons_image_urls
+         FROM matched
+         GROUP BY longitude_bucket, latitude_bucket
+         ORDER BY wiki_view_count DESC, qid ASC`,
+        [bounds.west, longitudeCellSize, bounds.south, latitudeCellSize, ...where.params],
+      )
+      return rows.map(toMapPlace)
+    }
+
     const rows = firstResult(
       this.database,
       `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
               p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls,
               p.wikiViewCount AS wiki_view_count
        FROM places p ${where.sql}
-       ORDER BY p.wikiViewCount DESC, p.wikidata_qid ASC LIMIT ?`,
-      [...where.params, limit],
+       ORDER BY p.wikiViewCount DESC, p.wikidata_qid ASC`,
+      where.params,
     )
     return rows.map(toMapPlace)
   }

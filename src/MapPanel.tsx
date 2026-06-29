@@ -15,6 +15,7 @@ const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 const VIEW_COUNT_MAX = 10_000_000
 const VIEW_COUNT_COLORS = ['#37003e', '#13096b', '#005475', '#0095c2', '#00f7ff'] as const
+const INDIVIDUAL_MARKER_ZOOM = 8
 
 type Props = {
   places: Place[]
@@ -56,6 +57,16 @@ function viewCountZIndex(viewCount = 0): number {
   return Math.round(Math.log10(Math.max(0, viewCount) + 1) * 1000)
 }
 
+function countMarkerIcon(pointCount: number, highestViewCount: number): L.DivIcon {
+  const size = pointCount < 10 ? 'small' : pointCount < 100 ? 'medium' : 'large'
+  const formattedCount = pointCount.toLocaleString()
+  return L.divIcon({
+    className: `marker-cluster marker-cluster-${size}`,
+    html: `<div title="${formattedCount} places; highest has ${formatViews(highestViewCount)} views"><span>${formattedCount}</span></div>`,
+    iconSize: L.point(40, 40),
+  })
+}
+
 function popupHtml(place: Place): string {
   const translations = [place.labelEn, place.labelZh].filter(Boolean).join(' · ')
   const thumbnail = place.commonsImageUrls[0]
@@ -93,6 +104,8 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
   const mapRef = useRef<L.Map | null>(null)
   const markerLayerRef = useRef<L.MarkerClusterGroup | null>(null)
   const markerViewCountsRef = useRef(new WeakMap<L.Layer, number>())
+  const markerPointCountsRef = useRef(new WeakMap<L.Layer, number>())
+  const aggregatedModeRef = useRef(false)
   const onOpenRef = useRef(onOpenPlace)
   const onViewportRef = useRef(onViewportChanged)
 
@@ -140,20 +153,20 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
       maxClusterRadius: 48,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
-      disableClusteringAtZoom: 6,
-/*       iconCreateFunction: (cluster) => {
+      disableClusteringAtZoom: INDIVIDUAL_MARKER_ZOOM,
+      iconCreateFunction: (cluster) => {
         const childMarkers = cluster.getAllChildMarkers()
         const highestViewCount = childMarkers.reduce(
           (highest, marker) => Math.max(highest, markerViewCountsRef.current.get(marker) ?? 0),
           0,
         )
+        const pointCount = childMarkers.reduce(
+          (total, marker) => total + (markerPointCountsRef.current.get(marker) ?? 1),
+          0,
+        )
         cluster.setZIndexOffset(viewCountZIndex(highestViewCount))
-        return L.divIcon({
-          className: 'view-count-cluster',
-          html: `<span style="--cluster-color: ${viewCountColor(highestViewCount)}; --cluster-text-color: ${viewCountTextColor(highestViewCount)}" title="${cluster.getChildCount().toLocaleString()} places; highest has ${formatViews(highestViewCount)} views">${cluster.getChildCount().toLocaleString()}</span>`,
-          iconSize: L.point(28, 28),
-        })
-      }, */
+        return countMarkerIcon(pointCount, highestViewCount)
+      },
     })
     markers.addTo(map)
 
@@ -183,9 +196,18 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
 
   useEffect(() => {
     const markers = markerLayerRef.current
-    if (!markers) return
+    const map = mapRef.current
+    if (!markers || !map) return
 
     markers.clearLayers()
+    const aggregatedMode = places.some((place) => (place.mapPointCount ?? 1) > 1)
+    if (aggregatedMode !== aggregatedModeRef.current) {
+      map.removeLayer(markers)
+      const options = markers.options as L.MarkerClusterGroupOptions
+      options.disableClusteringAtZoom = aggregatedMode ? undefined : INDIVIDUAL_MARKER_ZOOM
+      markers.addTo(map)
+      aggregatedModeRef.current = aggregatedMode
+    }
 
     const placesByViewCount = [...places].sort(
       (first, second) => (first.wikiViewCount ?? 0) - (second.wikiViewCount ?? 0),
@@ -193,6 +215,22 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
 
     for (const place of placesByViewCount) {
       if (typeof place.latitude !== 'number' || typeof place.longitude !== 'number') continue
+      const pointCount = place.mapPointCount ?? 1
+
+      if (pointCount > 1) {
+        const marker = L.marker([place.latitude, place.longitude], {
+          icon: countMarkerIcon(pointCount, place.wikiViewCount ?? 0),
+          zIndexOffset: viewCountZIndex(place.wikiViewCount),
+        })
+        markerViewCountsRef.current.set(marker, place.wikiViewCount ?? 0)
+        markerPointCountsRef.current.set(marker, pointCount)
+        marker.on('click', () => {
+          const map = mapRef.current
+          if (map) map.setView(marker.getLatLng(), Math.min(map.getZoom() + 2, map.getMaxZoom()))
+        })
+        markers.addLayer(marker)
+        continue
+      }
 
       const marker = L.circleMarker([place.latitude, place.longitude], {
         radius: 6,
@@ -202,6 +240,7 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
         fillOpacity: 0.95,
       })
       markerViewCountsRef.current.set(marker, place.wikiViewCount ?? 0)
+      markerPointCountsRef.current.set(marker, 1)
 
       marker.bindTooltip(popupHtml(place), {
         className: 'place-map-tooltip',

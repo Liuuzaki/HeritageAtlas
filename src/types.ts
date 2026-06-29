@@ -14,6 +14,7 @@ export type Place = {
   nativeWikiViewCount: number
   enWikiViewCount: number
   wikiViewCount?: number
+  mapPointCount?: number
   wikipediaSitelinksCount: number
   sourceRecordUrls: string[]
   nativeWikiUrl?: string
