@@ -4,6 +4,7 @@ import 'leaflet.markercluster'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
+import { formatViews } from './data'
 import { thumbnailImageUrl } from './images'
 import type { MapBounds, Place } from './types'
 
@@ -12,6 +13,8 @@ import type { MapBounds, Place } from './types'
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+const VIEW_COUNT_MAX = 10_000_000
+const VIEW_COUNT_COLORS = ['#37003e', '#13096b', '#005475', '#0095c2', '#00f7ff'] as const
 
 type Props = {
   places: Place[]
@@ -28,6 +31,31 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;')
 }
 
+function viewCountColor(viewCount = 0): string {
+  const normalized = Math.min(1, Math.log10(Math.max(0, viewCount) + 1) / Math.log10(VIEW_COUNT_MAX + 1))
+  const scaled = normalized * (VIEW_COUNT_COLORS.length - 1)
+  const startIndex = Math.min(Math.floor(scaled), VIEW_COUNT_COLORS.length - 2)
+  const amount = scaled - startIndex
+  const toChannels = (hex: string): [number, number, number] => [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ]
+  const start = toChannels(VIEW_COUNT_COLORS[startIndex]!)
+  const end = toChannels(VIEW_COUNT_COLORS[startIndex + 1]!)
+  const channels = start.map((channel, index) => Math.round(channel + (end[index]! - channel) * amount))
+  return `rgb(${channels.join(', ')})`
+}
+
+function viewCountTextColor(viewCount = 0): string {
+  const normalized = Math.min(1, Math.log10(Math.max(0, viewCount) + 1) / Math.log10(VIEW_COUNT_MAX + 1))
+  return normalized > 0.72 ? '#172033' : '#ffffff'
+}
+
+function viewCountZIndex(viewCount = 0): number {
+  return Math.round(Math.log10(Math.max(0, viewCount) + 1) * 1000)
+}
+
 function popupHtml(place: Place): string {
   const translations = [place.labelEn, place.labelZh].filter(Boolean).join(' · ')
   const thumbnail = place.commonsImageUrls[0]
@@ -41,6 +69,7 @@ function popupHtml(place: Place): string {
         <strong>${escapeHtml(place.labelNative)}</strong>
         ${translations ? `<span>${escapeHtml(translations)}</span>` : ''}
         ${place.countryLabelEn ? `<span>${escapeHtml(place.countryLabelEn)}</span>` : ''}
+        <span class="map-card-views">${formatViews(place.wikiViewCount ?? 0)} Wikipedia views</span>
         <span class="map-card-badge">${escapeHtml(place.registryName)}</span>
         <span class="map-card-action">Open record →</span>
       </div>
@@ -63,6 +92,7 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const markerLayerRef = useRef<L.MarkerClusterGroup | null>(null)
+  const markerViewCountsRef = useRef(new WeakMap<L.Layer, number>())
   const onOpenRef = useRef(onOpenPlace)
   const onViewportRef = useRef(onViewportChanged)
 
@@ -89,25 +119,62 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
       attribution: TILE_ATTRIBUTION,
     }).addTo(map)
 
+    const legend = new L.Control({ position: 'bottomright' })
+    legend.onAdd = () => {
+      const element = L.DomUtil.create('div', 'map-view-legend')
+      element.setAttribute('role', 'img')
+      element.setAttribute('aria-label', 'Marker color scale for Wikipedia views, from zero to ten million or more')
+      element.innerHTML = `
+        <strong>Wikipedia views</strong>
+        <span class="map-view-gradient" aria-hidden="true"></span>
+        <span class="map-view-labels"><span>0</span><span>100K</span><span>10M+</span></span>
+      `
+      return element
+    }
+    legend.addTo(map)
+
     const markers = L.markerClusterGroup({
       chunkedLoading: false,
       chunkInterval: 20,
       chunkDelay: 10,
-      maxClusterRadius: 20,
+      maxClusterRadius: 48,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
-      disableClusteringAtZoom: 8,
+      disableClusteringAtZoom: 6,
+/*       iconCreateFunction: (cluster) => {
+        const childMarkers = cluster.getAllChildMarkers()
+        const highestViewCount = childMarkers.reduce(
+          (highest, marker) => Math.max(highest, markerViewCountsRef.current.get(marker) ?? 0),
+          0,
+        )
+        cluster.setZIndexOffset(viewCountZIndex(highestViewCount))
+        return L.divIcon({
+          className: 'view-count-cluster',
+          html: `<span style="--cluster-color: ${viewCountColor(highestViewCount)}; --cluster-text-color: ${viewCountTextColor(highestViewCount)}" title="${cluster.getChildCount().toLocaleString()} places; highest has ${formatViews(highestViewCount)} views">${cluster.getChildCount().toLocaleString()}</span>`,
+          iconSize: L.point(28, 28),
+        })
+      }, */
     })
     markers.addTo(map)
 
+    const bringHighViewMarkersToFront = () => {
+      markers.getLayers()
+        .sort((first, second) => (markerViewCountsRef.current.get(first) ?? 0) - (markerViewCountsRef.current.get(second) ?? 0))
+        .forEach((layer) => {
+          if (layer instanceof L.CircleMarker) layer.bringToFront()
+        })
+    }
+
     const reportViewport = () => onViewportRef.current(toBounds(map))
     map.on('moveend', reportViewport)
+    map.on('zoomend', bringHighViewMarkersToFront)
     mapRef.current = map
     markerLayerRef.current = markers
     reportViewport()
 
     return () => {
       map.off('moveend', reportViewport)
+      map.off('zoomend', bringHighViewMarkersToFront)
       map.remove()
       mapRef.current = null
       markerLayerRef.current = null
@@ -120,16 +187,21 @@ export function MapPanel({ places, onOpenPlace, onViewportChanged }: Props) {
 
     markers.clearLayers()
 
-    for (const place of places) {
+    const placesByViewCount = [...places].sort(
+      (first, second) => (first.wikiViewCount ?? 0) - (second.wikiViewCount ?? 0),
+    )
+
+    for (const place of placesByViewCount) {
       if (typeof place.latitude !== 'number' || typeof place.longitude !== 'number') continue
 
       const marker = L.circleMarker([place.latitude, place.longitude], {
-        radius: 7,
-        weight: 2,
+        radius: 6,
+        weight: 1,
         color: '#ffffff',
-        fillColor: '#a05012',
+        fillColor: viewCountColor(place.wikiViewCount),
         fillOpacity: 0.95,
       })
+      markerViewCountsRef.current.set(marker, place.wikiViewCount ?? 0)
 
       marker.bindTooltip(popupHtml(place), {
         className: 'place-map-tooltip',

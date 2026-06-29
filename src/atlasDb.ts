@@ -84,6 +84,7 @@ function toMapPlace(row: Row): Place {
     inceptionValues: [],
     nativeWikiViewCount: 0,
     enWikiViewCount: 0,
+    wikiViewCount: asNumber(row.wiki_view_count) || undefined,
     wikipediaSitelinksCount: 0,
     sourceRecordUrls: [],
     commonsImageUrls: splitList(row.commons_image_urls),
@@ -211,7 +212,8 @@ export class AtlasDatabase {
     const rows = firstResult(
       this.database,
       `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
-              p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls
+              p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls,
+              p.wikiViewCount AS wiki_view_count
        FROM places p ${where.sql}
        ORDER BY p.wikiViewCount DESC, p.wikidata_qid ASC LIMIT ?`,
       [...where.params, limit],
