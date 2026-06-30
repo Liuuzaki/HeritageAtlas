@@ -2,7 +2,7 @@
   "version": "2026-06-30",
   "name": "Heritage Atlas · 2026-06-30",
   "datasetUrl": "data/atlas-sample.sqlite",
-  "bytes": 4894720,
-  "sha256": "8adc113321c546dac5c4fc89cd4407702132dac42511bfe479feccbf89d69922",
-  "recordCount": 2564
+  "bytes": 68837376,
+  "sha256": "8dbefe66c17ba08f307c050320668eea0ba2a16d0a91607ac5af2da009a72984",
+  "recordCount": 34705
 }
