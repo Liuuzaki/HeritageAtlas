@@ -665,6 +665,37 @@ footer {
   line-height: 1.55;
 }
 
+.tags-section {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.tags-section .section-heading {
+  margin-bottom: 10px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-list li {
+  max-width: 100%;
+  padding: .34rem .58rem;
+  border: 1px solid #a7c2d8;
+  border-radius: 999px;
+  background: #eef7f5;
+  color: #194b45;
+  font-size: .82rem;
+  font-weight: 750;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
 .article-meta {
   display: flex;
   gap: 10px;

@@ -9,6 +9,7 @@ export type Place = {
   nativeLanguageLabelEn?: string
   countryLabelEn?: string
   designations: string[]
+  instanceOf: string[]
   styles: string[]
   inceptionValues: string[]
   nativeWikiViewCount: number

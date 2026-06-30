@@ -249,6 +249,21 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
   )
 }
 
+function TagsSection({ tags }: { tags: string[] }) {
+  return (
+    <section className="record-section tags-section" aria-labelledby="place-tags-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Tags</p>
+        </div>
+      </div>
+      {tags.length
+        ? <ul className="tag-list">{tags.map((tag) => <li key={tag}>{tag}</li>)}</ul>
+        : <p className="section-empty">No tags are recorded for this place.</p>}
+    </section>
+  )
+}
+
 function wikipediaCandidateFromUrl(articleUrl: string | undefined, sourceLabel: string): WikipediaCandidate | undefined {
   if (!articleUrl) return undefined
   try {
@@ -387,7 +402,6 @@ function WikipediaContentSection({ place }: { place: Place }) {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Wikipedia</p>
-          <h2 id="wikipedia-content-title">Original page</h2>
         </div>
         {article && <a href={article.articleUrl} target="_blank" rel="noreferrer">{article.sourceLabel}</a>}
       </div>
@@ -555,7 +569,6 @@ function CommonsImagesSection({ place }: { place: Place }) {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Wiki Commons</p>
-          <h2 id="commons-images-title">Images</h2>
         </div>
         {source && <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceLabel}</a>}
       </div>
@@ -619,6 +632,7 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
               <RecordSummary place={place} coordinateText={coordinateText} hasCoordinates={hasCoordinates} />
             </div>
           </section>
+          <TagsSection tags={place.instanceOf} />
           <WikipediaContentSection place={place} />
           <CommonsImagesSection place={place} />
         </article>

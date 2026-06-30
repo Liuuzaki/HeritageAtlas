@@ -35,6 +35,7 @@ CREATE TABLE {table} (
   native_language_label_en TEXT,
   country_label_en TEXT,
   heritage_designation_labels_native TEXT,
+  instance_of TEXT,
   architectural_style_label_en TEXT,
   inception_values TEXT,
   nativeWikiViewCount INTEGER NOT NULL DEFAULT 0,
@@ -76,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_places_native_label ON places(label_native COLLAT
 SOURCE_COLUMNS = {
     "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
     "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
-    "architectural_style_label_en", "inception_values", "nativewikiviewcount",
+    "instance_of", "architectural_style_label_en", "inception_values", "nativewikiviewcount",
     "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
     "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
     "official_website_urls",
@@ -86,7 +87,7 @@ REQUIRED_COLUMNS = {
     "places": {
         "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
         "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
-        "architectural_style_label_en", "inception_values", "nativewikiviewcount",
+        "instance_of", "architectural_style_label_en", "inception_values", "nativewikiviewcount",
         "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
         "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
         "official_website_urls",
@@ -96,6 +97,9 @@ REQUIRED_COLUMNS = {
 }
 
 ProgressCallback = Callable[[int], None]
+COLUMN_ALIASES = {
+    "instance of": "instance_of",
+}
 
 
 class ImportCancelled(Exception):
@@ -183,7 +187,8 @@ def normalize_row(row: dict[str | None, str | list[str] | None]) -> dict[str, st
     for key, value in row.items():
         if key is None or isinstance(value, list):
             continue
-        normalized[key.strip().lstrip("\ufeff").lower()] = value or ""
+        column = key.strip().lstrip("\ufeff").lower()
+        normalized[COLUMN_ALIASES.get(column, column)] = value or ""
     return normalized
 
 
@@ -203,6 +208,7 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
         "native_language_label_en": first(row, "native_language_label_en"),
         "country_label_en": first(row, "country_label_en"),
         "heritage_designation_labels_native": first(row, "heritage_designation_labels_native"),
+        "instance_of": first(row, "instance_of"),
         "architectural_style_label_en": first(row, "architectural_style_label_en"),
         "inception_values": first(row, "inception_values"),
         "nativeWikiViewCount": integer(first(row, "nativewikiviewcount")),
@@ -274,17 +280,18 @@ def insert_place(
         INSERT INTO places (
           wikidata_qid, label_native, label_en, label_zh, coordinates_wkt,
           native_language_label_en, country_label_en, heritage_designation_labels_native,
-          architectural_style_label_en, inception_values, nativeWikiViewCount, enWikiViewCount,
+          instance_of, architectural_style_label_en, inception_values, nativeWikiViewCount, enWikiViewCount,
           wikiViewCount, wikipedia_sitelinks_count, source_record_urls, nativewiki_url, enwiki_url,
           commons_image_urls, wikicommons_category, official_website_urls, latitude, longitude, registry_name,
           source_fields_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wikidata_qid) DO UPDATE SET
           label_native=excluded.label_native, label_en=excluded.label_en, label_zh=excluded.label_zh,
           coordinates_wkt=excluded.coordinates_wkt,
           native_language_label_en=excluded.native_language_label_en,
           country_label_en=excluded.country_label_en,
           heritage_designation_labels_native=excluded.heritage_designation_labels_native,
+          instance_of=excluded.instance_of,
           architectural_style_label_en=excluded.architectural_style_label_en,
           inception_values=excluded.inception_values,
           nativeWikiViewCount=excluded.nativeWikiViewCount,
@@ -300,7 +307,7 @@ def insert_place(
         tuple(place[key] for key in (
             "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
             "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
-            "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
+            "instance_of", "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
             "enWikiViewCount", "wikiViewCount", "wikipedia_sitelinks_count", "source_record_urls",
             "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
             "official_website_urls",
@@ -337,6 +344,8 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
     if "wikidata_qid" in columns:
         if "wikicommons_category" not in columns:
             connection.execute("ALTER TABLE places ADD COLUMN wikicommons_category TEXT")
+        if "instance_of" not in columns:
+            connection.execute("ALTER TABLE places ADD COLUMN instance_of TEXT")
         validate_database(connection)
         create_indexes(connection)
         return
@@ -351,7 +360,7 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
             INSERT INTO places_v2 (
               wikidata_qid, label_native, label_en, coordinates_wkt,
               country_label_en, heritage_designation_labels_native,
-              architectural_style_label_en, nativeWikiViewCount, enWikiViewCount,
+              instance_of, architectural_style_label_en, nativeWikiViewCount, enWikiViewCount,
               wikiViewCount, wikipedia_sitelinks_count, source_record_urls,
               nativewiki_url, enwiki_url, commons_image_urls, wikicommons_category, latitude, longitude,
               registry_name, source_fields_json
@@ -360,6 +369,7 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
               p.qid, COALESCE(NULLIF(p.native_name, ''), p.name, p.qid), p.name, '',
               p.country,
               COALESCE((SELECT group_concat(designation, ' | ') FROM place_designations d WHERE d.qid = p.qid), ''),
+              '',
               COALESCE((SELECT group_concat(style, ' | ') FROM place_styles s WHERE s.qid = p.qid), ''),
               0, 0, p.wiki_view_count,
               (CASE WHEN COALESCE(p.wikipedia_native, '') <> '' THEN 1 ELSE 0 END) +

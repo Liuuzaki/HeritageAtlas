@@ -69,6 +69,7 @@ function toPlace(row: Row): Place {
     nativeLanguageLabelEn: asString(row.native_language_label_en) || undefined,
     countryLabelEn: asString(row.country_label_en) || undefined,
     designations: splitList(row.heritage_designation_labels_native),
+    instanceOf: splitList(row.instance_of),
     styles: splitList(row.architectural_style_label_en),
     inceptionValues: splitList(row.inception_values),
     nativeWikiViewCount: asNumber(row.native_wiki_view_count),
@@ -97,6 +98,7 @@ function toMapPlace(row: Row): Place {
     longitude: asOptionalNumber(row.longitude),
     countryLabelEn: asString(row.country_label_en) || undefined,
     designations: splitList(row.heritage_designation_labels_native),
+    instanceOf: splitList(row.instance_of),
     styles: [],
     inceptionValues: [],
     nativeWikiViewCount: 0,
@@ -135,10 +137,11 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
       OR lower(COALESCE(p.country_label_en, '')) LIKE ? ESCAPE '\\'
       OR lower(COALESCE(p.native_language_label_en, '')) LIKE ? ESCAPE '\\'
       OR lower(COALESCE(p.heritage_designation_labels_native, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(p.instance_of, '')) LIKE ? ESCAPE '\\'
       OR lower(COALESCE(p.architectural_style_label_en, '')) LIKE ? ESCAPE '\\'
       OR lower(COALESCE(p.inception_values, '')) LIKE ? ESCAPE '\\'
     )`)
-    params.push(like, like, like, like, like, like, like, like)
+    params.push(like, like, like, like, like, like, like, like, like)
   }
 
   if (filters.country) {
@@ -166,7 +169,7 @@ const FULL_SELECT = `
   SELECT
     p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh, p.coordinates_wkt,
     p.latitude, p.longitude, p.native_language_label_en, p.country_label_en,
-    p.heritage_designation_labels_native, p.architectural_style_label_en, p.inception_values,
+    p.heritage_designation_labels_native, p.instance_of, p.architectural_style_label_en, p.inception_values,
     p.nativeWikiViewCount AS native_wiki_view_count,
     p.enWikiViewCount AS en_wiki_view_count,
     p.wikiViewCount AS wiki_view_count,
@@ -195,6 +198,9 @@ export class AtlasDatabase {
     }
     if (!columns.includes('wikicommons_category')) {
       database.exec("ALTER TABLE places ADD COLUMN wikicommons_category TEXT")
+    }
+    if (!columns.includes('instance_of')) {
+      database.exec("ALTER TABLE places ADD COLUMN instance_of TEXT")
     }
     return new AtlasDatabase(database)
   }
@@ -272,7 +278,7 @@ export class AtlasDatabase {
                 1 AS is_map_aggregate,
                 '' AS label_native, '' AS country_label_en,
                 '' AS heritage_designation_labels_native,
-                '' AS registry_name, '' AS commons_image_urls, '' AS wikicommons_category
+                '' AS instance_of, '' AS registry_name, '' AS commons_image_urls, '' AS wikicommons_category
          FROM matched
          GROUP BY longitude_bucket, latitude_bucket
          ORDER BY ${mapOrderColumn} DESC, qid ASC`,
@@ -287,7 +293,7 @@ export class AtlasDatabase {
       `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
               p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls,
               p.wikicommons_category,
-              p.heritage_designation_labels_native,
+              p.heritage_designation_labels_native, p.instance_of,
               p.wikiViewCount AS wiki_view_count, p.wikipedia_sitelinks_count,
               0 AS is_map_aggregate
        FROM places p ${where.sql}

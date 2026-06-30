@@ -15,7 +15,7 @@ from atlas_csv_importer import ImportCancelled, ImportOptions, default_dataset_u
 HEADERS = [
     "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
     "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
-    "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
+    "instance_of", "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
     "enWikiViewCount", "wikiViewCount", "wikipedia_sitelinks_count", "source_record_urls",
     "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
     "official_website_urls",
@@ -25,7 +25,7 @@ HEADERS = [
 def row(qid: str, native: str, english: str, coordinates: str = "POINT(2 48)") -> list[str]:
     return [
         qid, native, english, "中文名", coordinates, "French", "France",
-        "Monument historique | Patrimoine", "Gothic | Baroque", "+1926-00-00T00:00:00Z",
+        "Monument historique | Patrimoine", "church | museum", "Gothic | Baroque", "+1926-00-00T00:00:00Z",
         "12", "34", "46", "2", "https://registry.test/1 | https://registry.test/2",
         "https://fr.wikipedia.test/item", "https://en.wikipedia.test/item",
         "https://commons.test/first.jpg | https://commons.test/second.jpg",
@@ -63,7 +63,7 @@ class AtlasCsvImporterTest(unittest.TestCase):
                 stored = connection.execute(
                     """SELECT label_native, label_en, label_zh, coordinates_wkt,
                               native_language_label_en, country_label_en,
-                              heritage_designation_labels_native, architectural_style_label_en,
+                              heritage_designation_labels_native, instance_of, architectural_style_label_en,
                               inception_values, nativeWikiViewCount, enWikiViewCount, wikiViewCount,
                               wikipedia_sitelinks_count, source_record_urls, nativewiki_url, enwiki_url,
                               commons_image_urls, wikicommons_category, official_website_urls, latitude, longitude,
@@ -73,13 +73,14 @@ class AtlasCsvImporterTest(unittest.TestCase):
             self.assertTrue(set(HEADERS).issubset(columns))
             self.assertIn("future_column", columns)
             self.assertEqual(stored[0:3], ("Nom natif", "English name", "中文名"))
-            self.assertEqual(stored[9:13], (12, 34, 46, 2))
-            self.assertIn("first.jpg", stored[16])
-            self.assertEqual(stored[17], "https://commons.wikimedia.org/wiki/Category:Test_place")
-            self.assertIsNone(stored[19])
+            self.assertEqual(stored[7], "church | museum")
+            self.assertEqual(stored[10:14], (12, 34, 46, 2))
+            self.assertIn("first.jpg", stored[17])
+            self.assertEqual(stored[18], "https://commons.wikimedia.org/wiki/Category:Test_place")
             self.assertIsNone(stored[20])
-            self.assertEqual(stored[21], "future value")
-            self.assertEqual(json.loads(stored[22])["future_column"], "future value")
+            self.assertIsNone(stored[21])
+            self.assertEqual(stored[22], "future value")
+            self.assertEqual(json.loads(stored[23])["future_column"], "future value")
             self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["recordCount"], 1)
 
     def test_merge_updates_qid_and_preserves_other_places(self) -> None:
@@ -131,9 +132,31 @@ class AtlasCsvImporterTest(unittest.TestCase):
             with closing(sqlite3.connect(database)) as connection:
                 legacy = connection.execute(
                     "SELECT label_native, label_en, country_label_en, architectural_style_label_en, "
-                    "heritage_designation_labels_native, wikiViewCount FROM places WHERE wikidata_qid='QLEGACY'"
+                    "heritage_designation_labels_native, instance_of, wikiViewCount FROM places WHERE wikidata_qid='QLEGACY'"
                 ).fetchone()
-            self.assertEqual(legacy, ("Nom ancien", "Legacy English", "France", "Gothic", "Listed", 99))
+            self.assertEqual(legacy, ("Nom ancien", "Legacy English", "France", "Gothic", "Listed", "", 99))
+
+    def test_accepts_instance_of_header_with_spaces(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "places.csv"
+            database = root / "atlas.sqlite"
+            headers = ["instance of" if header == "instance_of" else header for header in HEADERS]
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(headers)
+                writer.writerow(row("Q1", "Nom natif", "English name"))
+
+            import_csv(ImportOptions(source, database, "Registry", "v1", "Atlas", "replace"))
+
+            with closing(sqlite3.connect(database)) as connection:
+                columns = {item[1] for item in connection.execute("PRAGMA table_info(places)")}
+                instance_of = connection.execute(
+                    "SELECT instance_of FROM places WHERE wikidata_qid = 'Q1'"
+                ).fetchone()[0]
+            self.assertIn("instance_of", columns)
+            self.assertNotIn("instance of", columns)
+            self.assertEqual(instance_of, "church | museum")
 
     def test_cancelled_merge_rolls_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
