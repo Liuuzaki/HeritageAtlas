@@ -184,19 +184,19 @@ h1 {
   white-space: nowrap;
 }
 
-.map-card-designation {
-  width: fit-content;
-  max-width: 100%;
-  overflow: hidden;
-  padding: .2rem .44rem;
-  border: 1px solid rgba(150, 92, 0, .2);
-  border-radius: 999px;
-  background: #fff7e8;
-  color: #7c4a00;
-  font-size: .68rem;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.map-card-designations {
+  color: #64748b;
+  font-size: .7rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.map-card-designations span + span::before,
+.card-designations span + span::before,
+.summary-designations span + span::before {
+  content: "/";
+  margin: 0 0px;
+  color: #94a3b8;
 }
 
 .map-card-meta {
@@ -392,7 +392,7 @@ h1 {
   font-size: .85rem;
 }
 
-.card-copy strong {
+.card-copy>strong {
   color: #18212f;
   font-size: 1rem;
   overflow: hidden;
@@ -425,6 +425,32 @@ h1 {
   margin-top: 6px;
   color: #64748b;
   font-size: .76rem;
+}
+
+.card-designations,
+.summary-designations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.card-designations {
+  flex-basis: 100%;
+}
+
+.card-popularity-row {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.card-button:hover .map-card-popularity strong {
+  color: #fff;
 }
 
 .notice {
@@ -506,7 +532,7 @@ footer {
 .record-hero-wrap {
   padding: 24px;
   display: grid;
-  grid-template-columns: minmax(230px, .8fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(230px, .78fr) minmax(0, 1.42fr);
   gap: 28px;
   align-items: start;
   border-bottom: 1px solid #e5eaf0;
@@ -534,15 +560,208 @@ footer {
   color: #607086;
 }
 
-.record-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 30px;
-  padding: 8px 24px 24px;
+.record-summary {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e5eaf0;
 }
 
-.record-grid dl {
+.summary-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
   margin: 0;
+}
+
+.summary-facts .detail-row {
+  min-width: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.summary-facts .detail-row dt {
+  margin-bottom: 3px;
+  color: #64748b;
+  font-size: .68rem;
+  line-height: 1.15;
+}
+
+.summary-facts .detail-row dd {
+  color: #18212f;
+  font-size: .78rem;
+  line-height: 1.32;
+}
+
+.summary-facts .detail-row ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.summary-facts .detail-row li {
+  min-width: 0;
+}
+
+.summary-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.summary-links a {
+  max-width: 100%;
+  padding: .28rem .48rem;
+  border: 1px solid #c7d2df;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #064e93;
+  font-size: .72rem;
+  font-weight: 750;
+  line-height: 1.1;
+  text-decoration: none;
+}
+
+.summary-links a:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.record-section {
+  padding: 24px;
+  border-bottom: 1px solid #e5eaf0;
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  color: #18212f;
+  font-size: 1.24rem;
+  line-height: 1.2;
+}
+
+.section-heading>a,
+.section-heading>span {
+  color: #607086;
+  font-size: .82rem;
+  font-weight: 700;
+  text-align: right;
+  text-decoration: none;
+}
+
+.section-empty {
+  margin: 0;
+  color: #607086;
+  line-height: 1.55;
+}
+
+.article-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  color: #607086;
+  font-size: .86rem;
+}
+
+.article-meta strong {
+  color: #18212f;
+  font-size: 1rem;
+}
+
+.article-meta span {
+  padding: .16rem .42rem;
+  border: 1px solid #c7d2df;
+  border-radius: 999px;
+  color: #48566a;
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.wikipedia-frame-wrap {
+  overflow: hidden;
+  max-width: 100%;
+  height: min(620px, 72vh);
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.wikipedia-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.article-extract {
+  max-width: 860px;
+  color: #334155;
+  line-height: 1.68;
+}
+
+.article-extract p {
+  margin: 0 0 12px;
+}
+
+.load-more-button {
+  margin-top: 4px;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #064e93;
+  cursor: pointer;
+  font-weight: 700;
+  padding: .55rem .78rem;
+}
+
+.load-more-button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.commons-count {
+  margin: -4px 0 12px;
+  color: #607086;
+  font-size: .84rem;
+}
+
+.commons-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.commons-gallery-item {
+  display: block;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #e9eef3;
+}
+
+.commons-gallery-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .18s ease;
+}
+
+.commons-gallery-item:hover img {
+  transform: scale(1.035);
 }
 
 .detail-row {
@@ -588,9 +807,6 @@ footer {
     max-height: none;
   }
 
-  .record-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 680px) {
@@ -619,9 +835,25 @@ footer {
     padding: 0;
   }
 
-  .record-hero-wrap,
-  .record-grid {
+  .record-hero-wrap {
     grid-template-columns: 1fr;
+  }
+
+  .summary-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading {
+    display: grid;
+  }
+
+  .section-heading>a,
+  .section-heading>span {
+    text-align: left;
+  }
+
+  .commons-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .thumbnail-hero {

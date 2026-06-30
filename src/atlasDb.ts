@@ -79,6 +79,7 @@ function toPlace(row: Row): Place {
     nativeWikiUrl: asString(row.nativewiki_url) || undefined,
     enWikiUrl: asString(row.enwiki_url) || undefined,
     commonsImageUrls: splitList(row.commons_image_urls),
+    wikicommonsCategory: asString(row.wikicommons_category) || undefined,
     officialWebsiteUrls: splitList(row.official_website_urls),
     registryName: asString(row.registry_name) || 'Unspecified registry',
     sourceFields: parseSourceFields(row.source_fields_json),
@@ -106,6 +107,7 @@ function toMapPlace(row: Row): Place {
     wikipediaSitelinksCount: asNumber(row.wikipedia_sitelinks_count),
     sourceRecordUrls: [],
     commonsImageUrls: splitList(row.commons_image_urls),
+    wikicommonsCategory: asString(row.wikicommons_category) || undefined,
     officialWebsiteUrls: [],
     registryName: asString(row.registry_name) || 'Unspecified registry',
     sourceFields: {},
@@ -169,7 +171,7 @@ const FULL_SELECT = `
     p.enWikiViewCount AS en_wiki_view_count,
     p.wikiViewCount AS wiki_view_count,
     p.wikipedia_sitelinks_count, p.source_record_urls, p.nativewiki_url, p.enwiki_url,
-    p.commons_image_urls, p.official_website_urls, p.registry_name, p.source_fields_json
+    p.commons_image_urls, p.wikicommons_category, p.official_website_urls, p.registry_name, p.source_fields_json
   FROM places p
 `
 
@@ -190,6 +192,9 @@ export class AtlasDatabase {
     if (!columns.includes('wikidata_qid') || !columns.includes('label_native')) {
       database.close()
       throw new IncompatibleAtlasError()
+    }
+    if (!columns.includes('wikicommons_category')) {
+      database.exec("ALTER TABLE places ADD COLUMN wikicommons_category TEXT")
     }
     return new AtlasDatabase(database)
   }
@@ -267,7 +272,7 @@ export class AtlasDatabase {
                 1 AS is_map_aggregate,
                 '' AS label_native, '' AS country_label_en,
                 '' AS heritage_designation_labels_native,
-                '' AS registry_name, '' AS commons_image_urls
+                '' AS registry_name, '' AS commons_image_urls, '' AS wikicommons_category
          FROM matched
          GROUP BY longitude_bucket, latitude_bucket
          ORDER BY ${mapOrderColumn} DESC, qid ASC`,
@@ -281,6 +286,7 @@ export class AtlasDatabase {
       this.database,
       `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
               p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls,
+              p.wikicommons_category,
               p.heritage_designation_labels_native,
               p.wikiViewCount AS wiki_view_count, p.wikipedia_sitelinks_count,
               0 AS is_map_aggregate

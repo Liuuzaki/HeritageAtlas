@@ -14,9 +14,9 @@ const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 const VIEW_COUNT_MAX = 10_000_000
-const VIEW_COUNT_COLORS = ['#27003e', '#09306b', '#2469ff', '#00a2ff', '#00fff2'] as const
+const VIEW_COUNT_COLORS = ['#27003e', '#7f13c3', '#2469ff', '#00a2ff', '#00fff2'] as const
 const SITELINK_COUNT_MAX = 100
-const INDIVIDUAL_MARKER_ZOOM = 8
+const INDIVIDUAL_MARKER_ZOOM = 10
 const CLUSTER_ICON_SIZE = 32
 
 type ColorMetric = 'views' | 'sitelinks'
@@ -41,7 +41,7 @@ const METRIC_CONFIGS: Record<ColorMetric, MetricConfig> = {
     format: formatViews,
   },
   sitelinks: {
-    title: 'Wikipedia sitelinks',
+    title: 'Wikipedia popularity',
     noun: 'sitelinks',
     max: SITELINK_COUNT_MAX,
     middleValue: 10,
@@ -127,8 +127,8 @@ function updateLegend(element: HTMLDivElement, config: MetricConfig): void {
 
 function popupHtml(place: Place, metric: ColorMetric): string {
   const translations = [place.labelEn, place.labelZh].filter(Boolean).join(' · ')
-  const designation = place.designations[0]
-  const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia sitelinks`
+  const designations = place.designations.map((item) => `<span>${escapeHtml(item)}</span>`).join('')
+  const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia popularity`
   const views = place.wikiViewCount ?? 0
   const thumbnail = place.commonsImageUrls[0]
   const image = thumbnail
@@ -140,7 +140,7 @@ function popupHtml(place: Place, metric: ColorMetric): string {
       <div class="map-card-copy">
         <strong>${escapeHtml(place.labelNative)}</strong>
         ${translations ? `<span>${escapeHtml(translations)}</span>` : ''}
-        ${designation ? `<span class="map-card-designation">${escapeHtml(designation)}</span>` : ''}
+        ${designations ? `<span class="map-card-designations">${designations}</span>` : ''}
         <span class="map-card-meta">
           <span class="map-card-popularity" title="${escapeHtml(popularityTitle)}">
             <span>Wiki popularity</span>

@@ -11,14 +11,62 @@ type InstallProgress = { stage: 'idle' | 'downloading' | 'installing'; received:
 
 const PAGE_SIZE = 20
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], registries: [] }
-const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', registry: '', style: '', sort: 'views' }
-const DISPLAYED_SOURCE_FIELDS = new Set([
-  'wikidata_qid', 'label_native', 'label_en', 'label_zh', 'coordinates_wkt',
-  'native_language_label_en', 'country_label_en', 'heritage_designation_labels_native',
-  'architectural_style_label_en', 'inception_values', 'nativewikiviewcount',
-  'enwikiviewcount', 'wikiviewcount', 'wikipedia_sitelinks_count', 'source_record_urls',
-  'nativewiki_url', 'enwiki_url', 'commons_image_urls', 'official_website_urls',
-])
+const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', registry: '', style: '', sort: 'sitelinks' }
+const COMMONS_IMAGE_STEP = 8
+
+type WikipediaLoadState = 'idle' | 'loading' | 'ready' | 'error'
+type WikipediaCandidate = {
+  language: string
+  title: string
+  articleUrl: string
+  apiUrl: string
+  sourceLabel: string
+}
+type WikipediaArticle = {
+  language: string
+  title: string
+  html: string
+  articleUrl: string
+  sourceLabel: string
+}
+type WikipediaParseResult = {
+  title?: string
+  displaytitle?: string
+  text?: string
+}
+type WikipediaParseResponse = {
+  parse?: WikipediaParseResult
+}
+type CommonsSource = {
+  title: string
+  kind: 'category' | 'page' | 'file'
+  sourceUrl: string
+  sourceLabel: string
+}
+type CommonsFile = {
+  title: string
+  thumbUrl: string
+  fullUrl: string
+}
+type CommonsImageInfo = {
+  thumburl?: string
+  url?: string
+}
+type CommonsPage = {
+  title?: string
+  imageinfo?: CommonsImageInfo[]
+}
+type CommonsImageResponse = {
+  query?: {
+    pages?: CommonsPage[]
+  }
+  continue?: Record<string, string>
+}
+type CommonsImagePage = {
+  files: CommonsFile[]
+  continuation?: Record<string, string>
+}
+type CommonsLoadState = 'idle' | 'loading' | 'ready' | 'error'
 
 function readRoute(): Route {
   const raw = window.location.hash.replace(/^#/, '')
@@ -127,6 +175,7 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
 }
 
 function PlaceCard({ place, sort }: { place: Place; sort: PlaceFilters['sort'] }) {
+  const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia languages`
   return (
     <article className="place-card">
       <a className="card-button" href={placeHref(place.qid)}>
@@ -134,13 +183,15 @@ function PlaceCard({ place, sort }: { place: Place; sort: PlaceFilters['sort'] }
         <div className="card-copy">
           <strong>{place.labelNative}</strong>
           {(place.labelEn || place.labelZh) && <span className="place-subheading">{[place.labelEn, place.labelZh].filter(Boolean).join(' · ')}</span>}
-          <span>{place.countryLabelEn || 'Location not recorded'}</span>
-          <span className="badge">{place.registryName}</span>
           <div className="card-meta">
-            {place.designations.slice(0, 2).map((item) => <span key={item}>{item}</span>)}
-            {sort === 'sitelinks'
-              ? <span>{place.wikipediaSitelinksCount.toLocaleString()} Wikipedia sitelinks</span>
-              : place.wikiViewCount ? <span>{formatViews(place.wikiViewCount)} Wikipedia views</span> : null}
+            <DesignationText values={place.designations} limit={2} className="card-designations" />
+            <span className="card-popularity-row">
+              <span className="map-card-popularity" title={popularityTitle}>
+                <span>Wiki popularity</span>
+                <strong>{place.wikipediaSitelinksCount > 100 ? '100+' : place.wikipediaSitelinksCount.toLocaleString()}</strong>
+              </span>
+              {sort === 'views' && place.wikiViewCount ? <span className="map-card-views">{formatViews(place.wikiViewCount)} TODO: Wikipedia pageview</span> : null}
+            </span>
           </div>
         </div>
       </a>
@@ -156,9 +207,370 @@ function TextList({ values }: { values: string[] }) {
   return values.length ? <ul>{values.map((value) => <li key={value}>{value}</li>)}</ul> : <>Not recorded</>
 }
 
-function LinkList({ values }: { values: string[] }) {
-  const uniqueValues = [...new Set(values)]
-  return uniqueValues.length ? <ul>{uniqueValues.map((url) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>)}</ul> : <>Not recorded</>
+function DesignationText({ values, limit, className }: { values: string[]; limit?: number; className?: string }) {
+  const displayedValues = typeof limit === 'number' ? values.slice(0, limit) : values
+  return displayedValues.length
+    ? <span className={className}>{displayedValues.join('/')}</span>
+    : <>Not recorded</>
+}
+
+function aliasedLinks(place: Place): { href: string; label: string }[] {
+  const links: { href: string; label: string }[] = []
+  const add = (href: string | undefined, label: string) => {
+    if (href && !links.some((link) => link.href === href)) links.push({ href, label })
+  }
+
+  place.sourceRecordUrls.forEach((url, index) => add(url, place.sourceRecordUrls.length > 1 ? `Source record ${index + 1}` : 'Source record'))
+  add(place.enWikiUrl, 'English Wikipedia')
+  add(place.nativeWikiUrl, 'Native Wikipedia')
+  place.officialWebsiteUrls.forEach((url, index) => add(url, place.officialWebsiteUrls.length > 1 ? `Official website ${index + 1}` : 'Official website'))
+  add(place.wikicommonsCategory, 'Wiki Commons')
+  add(`https://www.wikidata.org/wiki/${place.qid}`, 'Wikidata')
+  return links
+}
+
+function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place; coordinateText: string; hasCoordinates: boolean }) {
+  const links = aliasedLinks(place)
+  const googleMapsUrl = hasCoordinates ? `https://www.google.com/maps/search/?api=1&query=${place.latitude},${place.longitude}` : ''
+
+  return (
+    <section className="record-summary" aria-label="Record details">
+      <dl className="summary-facts">
+        <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
+        <DetailRow label="Heritage designation"><DesignationText values={place.designations} /></DetailRow>
+        <DetailRow label="Architectural style"><TextList values={place.styles} /></DetailRow>
+        <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
+        <DetailRow label="Map coordinates">{hasCoordinates ? <a href={googleMapsUrl} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
+      </dl>
+      {links.length > 0 && <nav className="summary-links" aria-label="Record links">
+        {links.map((link) => <a key={link.href} href={link.href} target="_blank" rel="noreferrer">{link.label}</a>)}
+      </nav>}
+    </section>
+  )
+}
+
+function wikipediaCandidateFromUrl(articleUrl: string | undefined, sourceLabel: string): WikipediaCandidate | undefined {
+  if (!articleUrl) return undefined
+  try {
+    const url = new URL(articleUrl)
+    const host = url.hostname.toLocaleLowerCase()
+    const suffix = '.wikipedia.org'
+    const prefix = '/wiki/'
+    if (!host.endsWith(suffix) || !url.pathname.startsWith(prefix)) return undefined
+    const language = host.slice(0, -suffix.length)
+    const title = decodeURIComponent(url.pathname.slice(prefix.length)).replaceAll('_', ' ')
+    if (!language || !title) return undefined
+    return {
+      language,
+      title,
+      articleUrl: url.toString(),
+      apiUrl: `https://${host}/w/api.php`,
+      sourceLabel,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function wikipediaCandidates(place: Place): WikipediaCandidate[] {
+  const seen = new Set<string>()
+  return [
+    wikipediaCandidateFromUrl(place.enWikiUrl, 'English Wikipedia'),
+    wikipediaCandidateFromUrl(place.nativeWikiUrl, 'Native language Wikipedia'),
+  ].filter((candidate): candidate is WikipediaCandidate => {
+    if (!candidate || seen.has(candidate.articleUrl)) return false
+    seen.add(candidate.articleUrl)
+    return true
+  })
+}
+
+async function fetchWikipediaArticle(candidate: WikipediaCandidate, signal: AbortSignal): Promise<WikipediaArticle | undefined> {
+  const url = new URL(candidate.apiUrl)
+  url.searchParams.set('action', 'parse')
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('formatversion', '2')
+  url.searchParams.set('origin', '*')
+  url.searchParams.set('redirects', '1')
+  url.searchParams.set('prop', 'text|displaytitle')
+  url.searchParams.set('page', candidate.title)
+
+  const response = await fetch(url, { signal })
+  if (!response.ok) throw new Error(`Wikipedia returned ${response.status}`)
+  const data = await response.json() as WikipediaParseResponse
+  const page = data.parse
+  if (!page?.text?.trim()) return undefined
+  return {
+    language: candidate.language,
+    title: page.title?.trim() || candidate.title,
+    html: page.text.trim(),
+    articleUrl: candidate.articleUrl,
+    sourceLabel: candidate.sourceLabel,
+  }
+}
+
+function wikipediaPageDocument(article: WikipediaArticle): string {
+  const baseUrl = new URL(article.articleUrl)
+  const baseHref = `${baseUrl.origin}/`
+  const content = article.html.replaceAll('href="//', 'href="https://').replaceAll('src="//', 'src="https://')
+  return `<!doctype html>
+<html lang="${article.language}">
+<head>
+  <meta charset="utf-8">
+  <base href="${baseHref}" target="_blank">
+  <style>
+    :root { color: #202122; background: #fff; font-family: sans-serif; }
+    body { margin: 0; padding: 20px; font-size: 15px; line-height: 1.6; }
+    a { color: #0645ad; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    img, video { max-width: 100%; height: auto; }
+    table { max-width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #a2a9b1; padding: .25rem .45rem; vertical-align: top; }
+    .mw-parser-output > :first-child { margin-top: 0; }
+    .infobox, .thumb, figure { max-width: min(100%, 320px); }
+    .thumb, figure { margin: 0 0 1rem 1rem; float: right; }
+    .thumbinner { max-width: 100%; }
+    .mw-editsection, .reference, .reflist, .navbox, .metadata, .ambox, .sistersitebox { display: none; }
+    @media (max-width: 640px) {
+      body { padding: 14px; font-size: 14px; }
+      .thumb, figure { float: none; margin: 0 0 1rem; }
+      .infobox { width: 100% !important; }
+    }
+  </style>
+</head>
+<body><main class="mw-parser-output">${content}</main></body>
+</html>`
+}
+
+function WikipediaContentSection({ place }: { place: Place }) {
+  const candidates = useMemo(() => wikipediaCandidates(place), [place.enWikiUrl, place.nativeWikiUrl])
+  const [state, setState] = useState<WikipediaLoadState>('idle')
+  const [article, setArticle] = useState<WikipediaArticle | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let active = true
+    setArticle(null)
+
+    if (!candidates.length) {
+      setState('idle')
+      return () => controller.abort()
+    }
+
+    setState('loading')
+    ;(async () => {
+      for (const candidate of candidates) {
+        try {
+          const loaded = await fetchWikipediaArticle(candidate, controller.signal)
+          if (!active) return
+          if (loaded) {
+            setArticle(loaded)
+            setState('ready')
+            return
+          }
+        } catch (reason) {
+          if (reason instanceof DOMException && reason.name === 'AbortError') return
+        }
+      }
+      if (active) setState('error')
+    })()
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [candidates])
+
+  const pageDocument = useMemo(() => article ? wikipediaPageDocument(article) : '', [article])
+
+  return (
+    <section className="record-section wikipedia-section" aria-labelledby="wikipedia-content-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Wikipedia</p>
+          <h2 id="wikipedia-content-title">Original page</h2>
+        </div>
+        {article && <a href={article.articleUrl} target="_blank" rel="noreferrer">{article.sourceLabel}</a>}
+      </div>
+      {state === 'idle' && <p className="section-empty">No Wikipedia article is recorded for this place.</p>}
+      {state === 'loading' && <p className="section-empty">Loading Wikipedia page...</p>}
+      {state === 'error' && <p className="section-empty">Wikipedia page could not be loaded right now.</p>}
+      {state === 'ready' && article && <>
+        <div className="article-meta">
+          <strong>{article.title}</strong>
+          <span lang={article.language}>{article.language.toLocaleUpperCase()}</span>
+        </div>
+        <div className="wikipedia-frame-wrap">
+          <iframe
+            className="wikipedia-frame"
+            title={`${article.title} on Wikipedia`}
+            srcDoc={pageDocument}
+            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            scrolling="auto"
+          />
+        </div>
+      </>}
+    </section>
+  )
+}
+
+function commonsSourceFromCategoryUrl(categoryUrl: string | undefined): CommonsSource | undefined {
+  if (!categoryUrl) return undefined
+  try {
+    const url = new URL(categoryUrl)
+    if (url.hostname.toLocaleLowerCase() !== 'commons.wikimedia.org') return undefined
+    const prefix = '/wiki/'
+    if (!url.pathname.startsWith(prefix)) return undefined
+    const title = decodeURIComponent(url.pathname.slice(prefix.length)).replaceAll('_', ' ').trim()
+    if (!title) return undefined
+    const categoryTitle = title.startsWith('Category:') ? title : `Category:${title}`
+    return {
+      title: categoryTitle,
+      kind: 'category',
+      sourceUrl: url.toString(),
+      sourceLabel: 'Commons category',
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function addCommonsImageQuery(url: URL, source: CommonsSource, continuation?: Record<string, string>) {
+  url.searchParams.set('action', 'query')
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('formatversion', '2')
+  url.searchParams.set('origin', '*')
+  url.searchParams.set('prop', 'imageinfo')
+  url.searchParams.set('iiprop', 'url')
+  url.searchParams.set('iiurlwidth', '520')
+
+  if (source.kind === 'category') {
+    url.searchParams.set('generator', 'categorymembers')
+    url.searchParams.set('gcmtitle', source.title)
+    url.searchParams.set('gcmtype', 'file')
+    url.searchParams.set('gcmlimit', String(COMMONS_IMAGE_STEP))
+  } else if (source.kind === 'page') {
+    url.searchParams.set('generator', 'images')
+    url.searchParams.set('titles', source.title)
+    url.searchParams.set('gimlimit', String(COMMONS_IMAGE_STEP))
+  } else {
+    url.searchParams.set('titles', source.title)
+  }
+
+  if (continuation) {
+    for (const [key, value] of Object.entries(continuation)) {
+      url.searchParams.set(key, value)
+    }
+  }
+}
+
+function commonsFileFromPage(page: CommonsPage): CommonsFile | undefined {
+  const imageInfo = page.imageinfo?.[0]
+  if (!page.title || !imageInfo?.url) return undefined
+  return {
+    title: page.title,
+    thumbUrl: imageInfo.thumburl || imageInfo.url,
+    fullUrl: imageInfo.url,
+  }
+}
+
+async function fetchCommonsImages(source: CommonsSource, continuation: Record<string, string> | undefined, signal: AbortSignal): Promise<CommonsImagePage> {
+  const url = new URL('https://commons.wikimedia.org/w/api.php')
+  addCommonsImageQuery(url, source, continuation)
+
+  const response = await fetch(url, { signal })
+  if (!response.ok) throw new Error(`Commons returned ${response.status}`)
+  const data = await response.json() as CommonsImageResponse
+  const files = (data.query?.pages ?? []).map(commonsFileFromPage).filter((file): file is CommonsFile => Boolean(file))
+  return { files, continuation: data.continue }
+}
+
+function CommonsGalleryImage({ file, label, index }: { file: CommonsFile; label: string; index: number }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <a className="commons-gallery-item" href={file.fullUrl} target="_blank" rel="noreferrer">
+      <img src={file.thumbUrl} alt={`${label} image ${index + 1}`} title={file.title} loading="lazy" onError={() => setFailed(true)} />
+    </a>
+  )
+}
+
+function CommonsImagesSection({ place }: { place: Place }) {
+  const [state, setState] = useState<CommonsLoadState>('idle')
+  const [source, setSource] = useState<CommonsSource | null>(null)
+  const [images, setImages] = useState<CommonsFile[]>([])
+  const [continuation, setContinuation] = useState<Record<string, string> | undefined>()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let active = true
+    setState('loading')
+    setSource(null)
+    setImages([])
+    setContinuation(undefined)
+
+    ;(async () => {
+      try {
+        const loadedSource = commonsSourceFromCategoryUrl(place.wikicommonsCategory)
+        if (!active) return
+        if (!loadedSource) {
+          setState('idle')
+          return
+        }
+        setSource(loadedSource)
+        const firstPage = await fetchCommonsImages(loadedSource, undefined, controller.signal)
+        if (!active) return
+        setImages(firstPage.files)
+        setContinuation(firstPage.continuation)
+        setState('ready')
+      } catch (reason) {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        if (active) setState('error')
+      }
+    })()
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [place.wikicommonsCategory])
+
+  const loadMoreImages = async () => {
+    if (!source || !continuation || state === 'loading') return
+    try {
+      setState('loading')
+      const nextPage = await fetchCommonsImages(source, continuation, new AbortController().signal)
+      setImages((current) => {
+        const seen = new Set(current.map((image) => image.fullUrl))
+        return [...current, ...nextPage.files.filter((image) => !seen.has(image.fullUrl))]
+      })
+      setContinuation(nextPage.continuation)
+      setState('ready')
+    } catch {
+      setState('error')
+    }
+  }
+
+  return (
+    <section className="record-section commons-section" aria-labelledby="commons-images-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Wiki Commons</p>
+          <h2 id="commons-images-title">Images</h2>
+        </div>
+        {source && <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceLabel}</a>}
+      </div>
+      {state === 'idle' && <p className="section-empty">No Wiki Commons category is recorded for this place.</p>}
+      {state === 'error' && <p className="section-empty">Wiki Commons images could not be loaded right now.</p>}
+      {state === 'loading' && !images.length && <p className="section-empty">Finding Wiki Commons images...</p>}
+      {images.length ? <>
+        <p className="commons-count">{images.length.toLocaleString()} image{images.length === 1 ? '' : 's'} loaded from Wiki Commons</p>
+        <div className="commons-gallery">
+          {images.map((file, index) => <CommonsGalleryImage key={file.fullUrl} file={file} label={place.labelNative} index={index} />)}
+        </div>
+        {continuation && <button className="load-more-button" type="button" onClick={loadMoreImages} disabled={state === 'loading'}>{state === 'loading' ? 'Loading...' : 'Load More'}</button>}
+      </> : null}
+    </section>
+  )
 }
 
 function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: string; onClose: () => void }) {
@@ -190,9 +602,6 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
 
   const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
   const coordinateText = hasCoordinates ? `${place.latitude!.toFixed(5)}, ${place.longitude!.toFixed(5)}` : ''
-  const additionalFields = Object.entries(place.sourceFields).filter(
-    ([key, value]) => value.trim() && !DISPLAYED_SOURCE_FIELDS.has(key.toLocaleLowerCase()),
-  )
 
   return (
     <div className="record-overlay" onMouseDown={onClose}>
@@ -202,47 +611,16 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
           <section className="record-hero-wrap">
             <Thumbnail place={place} variant="hero" />
             <div>
-              <p className="eyebrow">{place.registryName}</p>
               <h1 id="place-detail-title">{place.labelNative}</h1>
               {(place.labelEn || place.labelZh) && <p className="translated-name">
                 {place.labelEn && <span lang="en">{place.labelEn}</span>}
                 {place.labelZh && <span lang="zh">{place.labelZh}</span>}
               </p>}
-              {place.countryLabelEn && <p className="record-location">{place.countryLabelEn}</p>}
+              <RecordSummary place={place} coordinateText={coordinateText} hasCoordinates={hasCoordinates} />
             </div>
           </section>
-          <section className="record-grid" aria-label="Record details">
-            <dl>
-              <DetailRow label="Native label (label_native)">{place.labelNative || 'Not recorded'}</DetailRow>
-              <DetailRow label="English label (label_en)">{place.labelEn || 'Not recorded'}</DetailRow>
-              <DetailRow label="Chinese label (label_zh)">{place.labelZh || 'Not recorded'}</DetailRow>
-              <DetailRow label="Native language">{place.nativeLanguageLabelEn || 'Not recorded'}</DetailRow>
-              <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
-              <DetailRow label="Heritage designation"><TextList values={place.designations} /></DetailRow>
-              <DetailRow label="Architectural style"><TextList values={place.styles} /></DetailRow>
-              <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
-            </dl>
-            <dl>
-              <DetailRow label="Coordinates (WKT)">{place.coordinatesWkt || 'Not recorded'}</DetailRow>
-              <DetailRow label="Map coordinates">{hasCoordinates ? <a href={`https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=16/${place.latitude}/${place.longitude}`} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
-              <DetailRow label="Native Wikipedia views">{place.nativeWikiViewCount.toLocaleString()}</DetailRow>
-              <DetailRow label="English Wikipedia views">{place.enWikiViewCount.toLocaleString()}</DetailRow>
-              <DetailRow label="Combined Wikipedia views">{(place.wikiViewCount ?? 0).toLocaleString()}</DetailRow>
-              <DetailRow label="Wikipedia sitelinks">{place.wikipediaSitelinksCount.toLocaleString()}</DetailRow>
-              <DetailRow label="Wikidata QID"><a href={`https://www.wikidata.org/wiki/${place.qid}`} target="_blank" rel="noreferrer">{place.qid}</a></DetailRow>
-              <DetailRow label="Registry used for import">{place.registryName}</DetailRow>
-            </dl>
-            <dl>
-              <DetailRow label="Source record URLs"><LinkList values={place.sourceRecordUrls} /></DetailRow>
-              <DetailRow label="Native Wikipedia URL">{place.nativeWikiUrl ? <a href={place.nativeWikiUrl} target="_blank" rel="noreferrer">{place.nativeWikiUrl}</a> : 'Not recorded'}</DetailRow>
-              <DetailRow label="English Wikipedia URL">{place.enWikiUrl ? <a href={place.enWikiUrl} target="_blank" rel="noreferrer">{place.enWikiUrl}</a> : 'Not recorded'}</DetailRow>
-              <DetailRow label="Commons image URLs"><LinkList values={place.commonsImageUrls} /></DetailRow>
-              <DetailRow label="Official website URLs"><LinkList values={place.officialWebsiteUrls} /></DetailRow>
-            </dl>
-            {additionalFields.length > 0 && <dl>
-              {additionalFields.map(([key, value]) => <DetailRow key={key} label={key}>{value}</DetailRow>)}
-            </dl>}
-          </section>
+          <WikipediaContentSection place={place} />
+          <CommonsImagesSection place={place} />
         </article>
         <footer><span>Map: © OpenStreetMap contributors.</span><span>Images remain hosted by their original sources.</span></footer>
       </section>
@@ -305,7 +683,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         <label>Style keyword<input value={filters.style} onChange={(event) => updateFilters({ style: event.target.value })} placeholder="e.g. Baroque" /></label>
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Registry<select value={filters.registry} onChange={(event) => updateFilters({ registry: event.target.value })}><option value="">All registries</option>{stats.registries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="views">Wikipedia views</option><option value="sitelinks">Wikipedia sitelinks</option><option value="name">Name</option></select></label>
+        <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
       </section>
 
       <p className="results-summary">{result.total.toLocaleString()} places match. Results {from.toLocaleString()}–{to.toLocaleString()} are loaded locally; the map clusters all matching places in the current view.</p>

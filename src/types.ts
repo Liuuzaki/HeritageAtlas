@@ -21,6 +21,7 @@ export type Place = {
   nativeWikiUrl?: string
   enWikiUrl?: string
   commonsImageUrls: string[]
+  wikicommonsCategory?: string
   officialWebsiteUrls: string[]
   registryName: string
   sourceFields: Record<string, string>

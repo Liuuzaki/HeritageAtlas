@@ -17,7 +17,8 @@ HEADERS = [
     "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
     "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
     "enWikiViewCount", "wikiViewCount", "wikipedia_sitelinks_count", "source_record_urls",
-    "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+    "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
+    "official_website_urls",
 ]
 
 
@@ -28,6 +29,7 @@ def row(qid: str, native: str, english: str, coordinates: str = "POINT(2 48)") -
         "12", "34", "46", "2", "https://registry.test/1 | https://registry.test/2",
         "https://fr.wikipedia.test/item", "https://en.wikipedia.test/item",
         "https://commons.test/first.jpg | https://commons.test/second.jpg",
+        "https://commons.wikimedia.org/wiki/Category:Test_place",
         "https://official.test/",
     ]
 
@@ -64,7 +66,7 @@ class AtlasCsvImporterTest(unittest.TestCase):
                               heritage_designation_labels_native, architectural_style_label_en,
                               inception_values, nativeWikiViewCount, enWikiViewCount, wikiViewCount,
                               wikipedia_sitelinks_count, source_record_urls, nativewiki_url, enwiki_url,
-                              commons_image_urls, official_website_urls, latitude, longitude,
+                              commons_image_urls, wikicommons_category, official_website_urls, latitude, longitude,
                               future_column, source_fields_json
                        FROM places WHERE wikidata_qid = 'Q1'"""
                 ).fetchone()
@@ -73,10 +75,11 @@ class AtlasCsvImporterTest(unittest.TestCase):
             self.assertEqual(stored[0:3], ("Nom natif", "English name", "中文名"))
             self.assertEqual(stored[9:13], (12, 34, 46, 2))
             self.assertIn("first.jpg", stored[16])
-            self.assertIsNone(stored[18])
+            self.assertEqual(stored[17], "https://commons.wikimedia.org/wiki/Category:Test_place")
             self.assertIsNone(stored[19])
-            self.assertEqual(stored[20], "future value")
-            self.assertEqual(json.loads(stored[21])["future_column"], "future value")
+            self.assertIsNone(stored[20])
+            self.assertEqual(stored[21], "future value")
+            self.assertEqual(json.loads(stored[22])["future_column"], "future value")
             self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["recordCount"], 1)
 
     def test_merge_updates_qid_and_preserves_other_places(self) -> None:

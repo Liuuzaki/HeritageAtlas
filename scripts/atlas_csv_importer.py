@@ -45,6 +45,7 @@ CREATE TABLE {table} (
   nativewiki_url TEXT,
   enwiki_url TEXT,
   commons_image_urls TEXT,
+  wikicommons_category TEXT,
   official_website_urls TEXT,
   latitude REAL,
   longitude REAL,
@@ -77,7 +78,8 @@ SOURCE_COLUMNS = {
     "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
     "architectural_style_label_en", "inception_values", "nativewikiviewcount",
     "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
-    "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+    "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
+    "official_website_urls",
 }
 
 REQUIRED_COLUMNS = {
@@ -86,7 +88,8 @@ REQUIRED_COLUMNS = {
         "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
         "architectural_style_label_en", "inception_values", "nativewikiviewcount",
         "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
-        "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+        "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
+        "official_website_urls",
         "latitude", "longitude", "registry_name", "source_fields_json",
     },
     "metadata": {"key", "value"},
@@ -210,6 +213,7 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
         "nativewiki_url": first(row, "nativewiki_url"),
         "enwiki_url": first(row, "enwiki_url"),
         "commons_image_urls": first(row, "commons_image_urls"),
+        "wikicommons_category": first(row, "wikicommons_category", "commons_category_url", "wikicommons_category_url"),
         "official_website_urls": first(row, "official_website_urls"),
         "latitude": latitude,
         "longitude": longitude,
@@ -272,9 +276,9 @@ def insert_place(
           native_language_label_en, country_label_en, heritage_designation_labels_native,
           architectural_style_label_en, inception_values, nativeWikiViewCount, enWikiViewCount,
           wikiViewCount, wikipedia_sitelinks_count, source_record_urls, nativewiki_url, enwiki_url,
-          commons_image_urls, official_website_urls, latitude, longitude, registry_name,
+          commons_image_urls, wikicommons_category, official_website_urls, latitude, longitude, registry_name,
           source_fields_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wikidata_qid) DO UPDATE SET
           label_native=excluded.label_native, label_en=excluded.label_en, label_zh=excluded.label_zh,
           coordinates_wkt=excluded.coordinates_wkt,
@@ -288,6 +292,7 @@ def insert_place(
           wikipedia_sitelinks_count=excluded.wikipedia_sitelinks_count,
           source_record_urls=excluded.source_record_urls, nativewiki_url=excluded.nativewiki_url,
           enwiki_url=excluded.enwiki_url, commons_image_urls=excluded.commons_image_urls,
+          wikicommons_category=excluded.wikicommons_category,
           official_website_urls=excluded.official_website_urls, latitude=excluded.latitude,
           longitude=excluded.longitude, registry_name=excluded.registry_name,
           source_fields_json=excluded.source_fields_json
@@ -297,7 +302,8 @@ def insert_place(
             "native_language_label_en", "country_label_en", "heritage_designation_labels_native",
             "architectural_style_label_en", "inception_values", "nativeWikiViewCount",
             "enWikiViewCount", "wikiViewCount", "wikipedia_sitelinks_count", "source_record_urls",
-            "nativewiki_url", "enwiki_url", "commons_image_urls", "official_website_urls",
+            "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
+            "official_website_urls",
             "latitude", "longitude", "registry_name", "source_fields_json",
         )),
     )
@@ -329,6 +335,8 @@ def create_indexes(connection: sqlite3.Connection) -> None:
 def migrate_legacy_database(connection: sqlite3.Connection) -> None:
     columns = {row[1].lower() for row in connection.execute("PRAGMA table_info(places)")}
     if "wikidata_qid" in columns:
+        if "wikicommons_category" not in columns:
+            connection.execute("ALTER TABLE places ADD COLUMN wikicommons_category TEXT")
         validate_database(connection)
         create_indexes(connection)
         return
@@ -345,7 +353,7 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
               country_label_en, heritage_designation_labels_native,
               architectural_style_label_en, nativeWikiViewCount, enWikiViewCount,
               wikiViewCount, wikipedia_sitelinks_count, source_record_urls,
-              nativewiki_url, enwiki_url, commons_image_urls, latitude, longitude,
+              nativewiki_url, enwiki_url, commons_image_urls, wikicommons_category, latitude, longitude,
               registry_name, source_fields_json
             )
             SELECT
@@ -357,7 +365,7 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
               (CASE WHEN COALESCE(p.wikipedia_native, '') <> '' THEN 1 ELSE 0 END) +
                 (CASE WHEN COALESCE(p.wikipedia_english, '') <> '' THEN 1 ELSE 0 END),
               p.registry_url, p.wikipedia_native, p.wikipedia_english,
-              p.thumbnail_primary, p.latitude, p.longitude, p.registry_name, '{}'
+              p.thumbnail_primary, '', p.latitude, p.longitude, p.registry_name, '{}'
             FROM places p
             """
         )
