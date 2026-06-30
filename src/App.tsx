@@ -67,6 +67,69 @@ type CommonsImagePage = {
   continuation?: Record<string, string>
 }
 type CommonsLoadState = 'idle' | 'loading' | 'ready' | 'error'
+type TagNameInfo = {
+  qid?: string
+  nativeName?: string
+  nativeLanguageName?: string
+  chineseName?: string
+  wikidataUrl?: string
+}
+type TagLookupState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; info: TagNameInfo }
+  | { status: 'error' }
+type WikidataSearchResult = {
+  id?: string
+  label?: string
+  match?: {
+    text?: string
+  }
+}
+type WikidataSearchResponse = {
+  search?: WikidataSearchResult[]
+}
+type WikidataEntity = {
+  id?: string
+  labels?: Record<string, { value?: string }>
+  claims?: Record<string, { mainsnak?: { datavalue?: { value?: unknown } } }[]>
+}
+type WikidataEntityResponse = {
+  entities?: Record<string, WikidataEntity>
+}
+
+const WIKIDATA_API = 'https://www.wikidata.org/w/api.php'
+const tagLookupCache = new Map<string, Promise<TagNameInfo>>()
+const WIKIDATA_LANGUAGE_CODES: Record<string, string> = {
+  arabic: 'ar',
+  chinese: 'zh',
+  czech: 'cs',
+  danish: 'da',
+  dutch: 'nl',
+  english: 'en',
+  finnish: 'fi',
+  french: 'fr',
+  german: 'de',
+  greek: 'el',
+  hindi: 'hi',
+  hungarian: 'hu',
+  indonesian: 'id',
+  italian: 'it',
+  japanese: 'ja',
+  korean: 'ko',
+  norwegian: 'no',
+  persian: 'fa',
+  polish: 'pl',
+  portuguese: 'pt',
+  romanian: 'ro',
+  russian: 'ru',
+  spanish: 'es',
+  swedish: 'sv',
+  thai: 'th',
+  turkish: 'tr',
+  ukrainian: 'uk',
+  vietnamese: 'vi',
+}
 
 function readRoute(): Route {
   const raw = window.location.hash.replace(/^#/, '')
@@ -151,6 +214,74 @@ function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', copyToArrayBuffer(bytes))
   return [...new Uint8Array(hash)].map((part) => part.toString(16).padStart(2, '0')).join('')
+}
+
+function wikidataApiUrl(params: Record<string, string>): string {
+  const url = new URL(WIKIDATA_API)
+  url.searchParams.set('origin', '*')
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('formatversion', '2')
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value)
+  }
+  return url.toString()
+}
+
+function nativeNameFromEntity(entity: WikidataEntity | undefined): string | undefined {
+  const nativeNameClaim = entity?.claims?.P1705?.[0]?.mainsnak?.datavalue?.value
+  if (!nativeNameClaim || typeof nativeNameClaim !== 'object' || Array.isArray(nativeNameClaim)) return undefined
+  const text = (nativeNameClaim as { text?: unknown }).text
+  return typeof text === 'string' && text.trim() ? text.trim() : undefined
+}
+
+function wikidataLanguageCode(languageLabel: string | undefined): string | undefined {
+  const normalized = languageLabel?.trim().toLocaleLowerCase()
+  return normalized ? WIKIDATA_LANGUAGE_CODES[normalized] : undefined
+}
+
+async function fetchTagNameInfo(tag: string, nativeLanguageLabel: string | undefined): Promise<TagNameInfo> {
+  const nativeLanguageCode = wikidataLanguageCode(nativeLanguageLabel)
+  const cacheKey = `${nativeLanguageCode || ''}\u0000${tag}`
+  const cached = tagLookupCache.get(cacheKey)
+  if (cached) return cached
+
+  const lookup = (async () => {
+    const searchResponse = await fetch(wikidataApiUrl({
+      action: 'wbsearchentities',
+      language: 'en',
+      uselang: 'en',
+      type: 'item',
+      limit: '1',
+      search: tag,
+    }))
+    if (!searchResponse.ok) throw new Error(`Wikidata returned ${searchResponse.status}`)
+    const searchData = await searchResponse.json() as WikidataSearchResponse
+    const match = searchData.search?.find((result) => result.id)
+    const qid = match?.id
+    if (!qid) return {}
+
+    const entityResponse = await fetch(wikidataApiUrl({
+      action: 'wbgetentities',
+      ids: qid,
+      props: 'labels|claims',
+      languages: [...new Set([nativeLanguageCode, 'zh', 'zh-hans', 'zh-hant', 'en'].filter(Boolean))].join('|'),
+      languagefallback: '1',
+    }))
+    if (!entityResponse.ok) throw new Error(`Wikidata returned ${entityResponse.status}`)
+    const entityData = await entityResponse.json() as WikidataEntityResponse
+    const entity = entityData.entities?.[qid]
+    const localizedNativeName = nativeLanguageCode ? entity?.labels?.[nativeLanguageCode]?.value : undefined
+    return {
+      qid,
+      nativeName: localizedNativeName || nativeNameFromEntity(entity),
+      nativeLanguageName: nativeLanguageLabel,
+      chineseName: entity?.labels?.zh?.value || entity?.labels?.['zh-hans']?.value || entity?.labels?.['zh-hant']?.value,
+      wikidataUrl: `https://www.wikidata.org/wiki/${qid}`,
+    }
+  })()
+
+  tagLookupCache.set(cacheKey, lookup)
+  return lookup
 }
 
 function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card' | 'hero' }) {
@@ -249,18 +380,70 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
   )
 }
 
-function TagsSection({ tags }: { tags: string[] }) {
+function TagsSection({ tags, nativeLanguageLabel }: { tags: string[]; nativeLanguageLabel?: string }) {
   return (
     <section className="record-section tags-section" aria-labelledby="place-tags-title">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Tags</p>
+          <h2 id="place-tags-title">Instance of</h2>
         </div>
       </div>
       {tags.length
-        ? <ul className="tag-list">{tags.map((tag) => <li key={tag}>{tag}</li>)}</ul>
+        ? <ul className="tag-list">{tags.map((tag) => <TagItem key={tag} tag={tag} nativeLanguageLabel={nativeLanguageLabel} />)}</ul>
         : <p className="section-empty">No tags are recorded for this place.</p>}
     </section>
+  )
+}
+
+function TagItem({ tag, nativeLanguageLabel }: { tag: string; nativeLanguageLabel?: string }) {
+  const [open, setOpen] = useState(false)
+  const [lookup, setLookup] = useState<TagLookupState>({ status: 'idle' })
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  const loadNames = () => {
+    setOpen(true)
+    if (lookup.status === 'loading' || lookup.status === 'ready') return
+    setLookup({ status: 'loading' })
+    fetchTagNameInfo(tag, nativeLanguageLabel)
+      .then((info) => {
+        if (mounted.current) setLookup({ status: 'ready', info })
+      })
+      .catch(() => {
+        if (mounted.current) setLookup({ status: 'error' })
+      })
+  }
+
+  return (
+    <li className="tag-item" tabIndex={0} onMouseEnter={loadNames} onMouseLeave={() => setOpen(false)} onFocus={loadNames} onBlur={() => setOpen(false)}>
+      <span>{tag}</span>
+      {open && <TagTooltip tag={tag} lookup={lookup} />}
+    </li>
+  )
+}
+
+function TagTooltip({ tag, lookup }: { tag: string; lookup: TagLookupState }) {
+  if (lookup.status === 'idle' || lookup.status === 'loading') {
+    return <span className="tag-tooltip" role="tooltip">Loading Wikidata names...</span>
+  }
+  if (lookup.status === 'error') {
+    return <span className="tag-tooltip" role="tooltip">Wikidata names unavailable.</span>
+  }
+
+  const { info } = lookup
+  return (
+    <span className="tag-tooltip" role="tooltip">
+      <span><strong>{info.nativeLanguageName ? `${info.nativeLanguageName} name` : 'Native name'}</strong>{info.nativeName || 'Not recorded'}</span>
+      <span><strong>Chinese name</strong>{info.chineseName || 'Not recorded'}</span>
+      {info.wikidataUrl
+        ? <a href={info.wikidataUrl} target="_blank" rel="noreferrer">Wikidata {info.qid}</a>
+        : <span>Wikidata match not found for {tag}.</span>}
+    </span>
   )
 }
 
@@ -632,7 +815,7 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
               <RecordSummary place={place} coordinateText={coordinateText} hasCoordinates={hasCoordinates} />
             </div>
           </section>
-          <TagsSection tags={place.instanceOf} />
+          <TagsSection tags={place.instanceOf} nativeLanguageLabel={place.nativeLanguageLabelEn} />
           <WikipediaContentSection place={place} />
           <CommonsImagesSection place={place} />
         </article>
