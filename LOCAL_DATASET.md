@@ -30,7 +30,6 @@ For an automated build, use the same tool from the command line:
 python scripts/atlas_csv_importer.py `
   --input "heritage_places_with_views.csv" `
   --output "build/heritage-atlas-2026-06.sqlite" `
-  --registry "Mérimée" `
   --mode merge `
   --version "2026-06-27" `
   --name "Heritage Atlas · 2026-06-27"
@@ -67,7 +66,7 @@ with the latest-release API response.
   latitude/longitude values used by the map
 - `metadata`: dataset version information
 
-The importer creates indexes for country, registry, native label, map
+The importer creates indexes for country, native label, map
 coordinates, and Wikipedia view count.
 
 ## Local storage behavior

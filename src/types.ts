@@ -24,8 +24,6 @@ export type Place = {
   commonsImageUrls: string[]
   wikicommonsCategory?: string
   officialWebsiteUrls: string[]
-  registryName: string
-  sourceFields: Record<string, string>
 }
 
 export type AtlasManifest = {
@@ -57,7 +55,6 @@ export type StoredAtlas = {
 export type PlaceFilters = {
   query: string
   country: string
-  registry: string
   style: string
   sort: 'views' | 'sitelinks' | 'name'
 }
@@ -80,5 +77,4 @@ export type MapBounds = {
 export type AtlasStats = {
   placeCount: number
   countries: string[]
-  registries: string[]
 }

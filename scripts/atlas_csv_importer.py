@@ -49,9 +49,7 @@ CREATE TABLE {table} (
   wikicommons_category TEXT,
   official_website_urls TEXT,
   latitude REAL,
-  longitude REAL,
-  registry_name TEXT NOT NULL DEFAULT 'Unspecified registry',
-  source_fields_json TEXT NOT NULL DEFAULT '{{}}'
+  longitude REAL
 );
 """
 
@@ -68,7 +66,6 @@ CREATE TABLE metadata (
 
 INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_places_country ON places(country_label_en);
-CREATE INDEX IF NOT EXISTS idx_places_registry ON places(registry_name);
 CREATE INDEX IF NOT EXISTS idx_places_coordinates ON places(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_places_views ON places(wikiViewCount DESC, wikidata_qid);
 CREATE INDEX IF NOT EXISTS idx_places_native_label ON places(label_native COLLATE NOCASE);
@@ -82,6 +79,7 @@ SOURCE_COLUMNS = {
     "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
     "official_website_urls",
 }
+IGNORED_COLUMNS = {"registry_name", "source_fields_json"}
 
 REQUIRED_COLUMNS = {
     "places": {
@@ -91,7 +89,7 @@ REQUIRED_COLUMNS = {
         "enwikiviewcount", "wikiviewcount", "wikipedia_sitelinks_count", "source_record_urls",
         "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
         "official_website_urls",
-        "latitude", "longitude", "registry_name", "source_fields_json",
+        "latitude", "longitude",
     },
     "metadata": {"key", "value"},
 }
@@ -110,7 +108,6 @@ class ImportCancelled(Exception):
 class ImportOptions:
     input_path: Path
     output_path: Path
-    registry: str
     version: str
     name: str
     mode: str = "merge"
@@ -206,7 +203,7 @@ def normalize_row(row: dict[str | None, str | list[str] | None]) -> dict[str, st
     return normalized
 
 
-def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] | None, str | None]:
+def place_from_row(row: dict[str, str]) -> tuple[dict[str, Any] | None, str | None]:
     qid = first(row, "wikidata_qid", "qid", "item")
     if not qid:
         return None, "qid"
@@ -215,15 +212,6 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
     country_label_en = first_value(first(row, "country_label_en"))
     inception_values = inception_year(first(row, "inception_values"))
     official_website_urls = first_value(first(row, "official_website_urls"))
-    source_fields = dict(row)
-    for column, value in (
-        ("country_label_en", country_label_en),
-        ("inception_values", inception_values),
-        ("official_website_urls", official_website_urls),
-    ):
-        if column in source_fields:
-            source_fields[column] = value
-
     return {
         "wikidata_qid": qid,
         "label_native": first(row, "label_native"),
@@ -248,8 +236,6 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
         "official_website_urls": official_website_urls,
         "latitude": latitude,
         "longitude": longitude,
-        "registry_name": registry,
-        "source_fields_json": json.dumps(source_fields, ensure_ascii=False, separators=(",", ":")),
     }, None
 
 
@@ -257,10 +243,8 @@ def csv_rows(path: Path) -> Iterator[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         sample = handle.read(16_384)
         handle.seek(0)
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-        except csv.Error:
-            dialect = csv.excel
+
+        dialect = csv.excel
         reader = csv.DictReader(handle, dialect=dialect)
         if not reader.fieldnames:
             raise ValueError("The CSV has no header row.")
@@ -285,6 +269,8 @@ def ensure_source_columns(connection: sqlite3.Connection, row: dict[str, str]) -
     existing = {item[1].lower() for item in connection.execute("PRAGMA table_info(places)")}
     extra: list[str] = []
     for column in row:
+        if column in IGNORED_COLUMNS:
+            continue
         if column not in existing:
             connection.execute(f"ALTER TABLE places ADD COLUMN {quote_identifier(column)} TEXT")
             existing.add(column)
@@ -307,9 +293,8 @@ def insert_place(
           native_language_label_en, country_label_en, heritage_designation_labels_native,
           instance_of, architectural_style_label_en, inception_values, nativeWikiViewCount, enWikiViewCount,
           wikiViewCount, wikipedia_sitelinks_count, source_record_urls, nativewiki_url, enwiki_url,
-          commons_image_urls, wikicommons_category, official_website_urls, latitude, longitude, registry_name,
-          source_fields_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          commons_image_urls, wikicommons_category, official_website_urls, latitude, longitude
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wikidata_qid) DO UPDATE SET
           label_native=excluded.label_native, label_en=excluded.label_en, label_zh=excluded.label_zh,
           coordinates_wkt=excluded.coordinates_wkt,
@@ -326,8 +311,7 @@ def insert_place(
           enwiki_url=excluded.enwiki_url, commons_image_urls=excluded.commons_image_urls,
           wikicommons_category=excluded.wikicommons_category,
           official_website_urls=excluded.official_website_urls, latitude=excluded.latitude,
-          longitude=excluded.longitude, registry_name=excluded.registry_name,
-          source_fields_json=excluded.source_fields_json
+          longitude=excluded.longitude
         """,
         tuple(place[key] for key in (
             "wikidata_qid", "label_native", "label_en", "label_zh", "coordinates_wkt",
@@ -336,7 +320,7 @@ def insert_place(
             "enWikiViewCount", "wikiViewCount", "wikipedia_sitelinks_count", "source_record_urls",
             "nativewiki_url", "enwiki_url", "commons_image_urls", "wikicommons_category",
             "official_website_urls",
-            "latitude", "longitude", "registry_name", "source_fields_json",
+            "latitude", "longitude",
         )),
     )
     if extra_columns:
@@ -367,6 +351,9 @@ def create_indexes(connection: sqlite3.Connection) -> None:
 def migrate_legacy_database(connection: sqlite3.Connection) -> None:
     columns = {row[1].lower() for row in connection.execute("PRAGMA table_info(places)")}
     if "wikidata_qid" in columns:
+        connection.execute("DROP INDEX IF EXISTS idx_places_registry")
+        for column in IGNORED_COLUMNS & columns:
+            connection.execute(f"ALTER TABLE places DROP COLUMN {quote_identifier(column)}")
         if "wikicommons_category" not in columns:
             connection.execute("ALTER TABLE places ADD COLUMN wikicommons_category TEXT")
         if "instance_of" not in columns:
@@ -387,8 +374,7 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
               country_label_en, heritage_designation_labels_native,
               instance_of, architectural_style_label_en, nativeWikiViewCount, enWikiViewCount,
               wikiViewCount, wikipedia_sitelinks_count, source_record_urls,
-              nativewiki_url, enwiki_url, commons_image_urls, wikicommons_category, latitude, longitude,
-              registry_name, source_fields_json
+              nativewiki_url, enwiki_url, commons_image_urls, wikicommons_category, latitude, longitude
             )
             SELECT
               p.qid, COALESCE(NULLIF(p.native_name, ''), p.name, p.qid), p.name, '',
@@ -400,7 +386,7 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
               (CASE WHEN COALESCE(p.wikipedia_native, '') <> '' THEN 1 ELSE 0 END) +
                 (CASE WHEN COALESCE(p.wikipedia_english, '') <> '' THEN 1 ELSE 0 END),
               p.registry_url, p.wikipedia_native, p.wikipedia_english,
-              p.thumbnail_primary, '', p.latitude, p.longitude, p.registry_name, '{}'
+              p.thumbnail_primary, '', p.latitude, p.longitude
             FROM places p
             """
         )
@@ -473,7 +459,7 @@ def _import_database(
                 input_rows += 1
                 if extra_columns is None:
                     extra_columns = ensure_source_columns(connection, row)
-                place, reason = place_from_row(row, options.registry)
+                place, reason = place_from_row(row)
                 if place is None:
                     skipped_no_qid += 1
                 else:
@@ -522,7 +508,7 @@ def import_csv(
     output_path = options.output_path.expanduser().resolve()
     manifest_path = options.manifest_path.expanduser().resolve() if options.manifest_path else None
     options = ImportOptions(
-        input_path, output_path, options.registry.strip(), options.version.strip(), options.name.strip(),
+        input_path, output_path, options.version.strip(), options.name.strip(),
         options.mode, manifest_path, text(options.dataset_url),
     )
     if not input_path.is_file():
@@ -531,8 +517,6 @@ def import_csv(
         raise ValueError("The CSV input and SQLite output must be different files.")
     if options.mode not in {"merge", "replace"}:
         raise ValueError("Mode must be 'merge' or 'replace'.")
-    if not options.registry:
-        raise ValueError("Registry name is required.")
     if not options.version or not options.name:
         raise ValueError("Dataset version and name are required.")
     if manifest_path in {input_path, output_path}:
@@ -591,7 +575,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input", type=Path, help="Heritage CSV input")
     parser.add_argument("--output", type=Path, help="SQLite database to create or update")
-    parser.add_argument("--registry", help="Registry name assigned to imported rows")
     parser.add_argument("--mode", choices=("merge", "replace"), default="merge")
     parser.add_argument("--manifest", type=Path, help="Optional atlas manifest JSON to write")
     parser.add_argument("--version", default=date.today().isoformat())
@@ -602,13 +585,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    required = (("--input", args.input), ("--output", args.output), ("--registry", args.registry))
+    required = (("--input", args.input), ("--output", args.output))
     missing = [flag for flag, value in required if not value]
     if missing:
         parser.error(f"the following arguments are required in command-line mode: {', '.join(missing)}")
     name = args.name or f"Heritage Atlas · {args.version}"
     options = ImportOptions(
-        args.input, args.output, args.registry, args.version, name, args.mode, args.manifest, args.dataset_url
+        args.input, args.output, args.version, name, args.mode, args.manifest, args.dataset_url
     )
     try:
         report = import_csv(
@@ -643,7 +626,6 @@ def run_ui() -> int:
             today = date.today().isoformat()
             self.input_var = tk.StringVar()
             self.output_var = tk.StringVar()
-            self.registry_var = tk.StringVar(value="Mérimée")
             self.version_var = tk.StringVar(value=today)
             self.name_var = tk.StringVar(value=f"Heritage Atlas · {today}")
             self.mode_var = tk.StringVar(value="merge")
@@ -680,7 +662,6 @@ def run_ui() -> int:
             ttk.Separator(outer).grid(row=4, column=0, columnspan=3, sticky="ew", pady=12)
 
             fields = (
-                ("Registry name", self.registry_var),
                 ("Dataset version", self.version_var),
                 ("Dataset name", self.name_var),
             )
@@ -775,8 +756,8 @@ def run_ui() -> int:
                     raise ValueError("Choose a manifest file or turn off website manifest output.")
                 manifest = Path(self.manifest_var.get())
             return ImportOptions(
-                Path(self.input_var.get()), Path(self.output_var.get()), self.registry_var.get(),
-                self.version_var.get(), self.name_var.get(), self.mode_var.get(), manifest,
+                Path(self.input_var.get()), Path(self.output_var.get()), self.version_var.get(),
+                self.name_var.get(), self.mode_var.get(), manifest,
                 self.dataset_url_var.get() or None,
             )
 

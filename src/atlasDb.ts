@@ -43,16 +43,6 @@ function splitList(value: SqlValue | undefined): string[] {
   return asString(value).split(/\s*\|\s*|\u001f/g).map((item) => item.trim()).filter(Boolean)
 }
 
-function parseSourceFields(value: SqlValue | undefined): Record<string, string> {
-  try {
-    const parsed: unknown = JSON.parse(asString(value) || '{}')
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
-  } catch {
-    return {}
-  }
-}
-
 function displayName(row: Row): string {
   return asString(row.label_native) || asString(row.label_en) || asString(row.label_zh) || asString(row.qid)
 }
@@ -82,8 +72,6 @@ function toPlace(row: Row): Place {
     commonsImageUrls: splitList(row.commons_image_urls),
     wikicommonsCategory: asString(row.wikicommons_category) || undefined,
     officialWebsiteUrls: splitList(row.official_website_urls),
-    registryName: asString(row.registry_name) || 'Unspecified registry',
-    sourceFields: parseSourceFields(row.source_fields_json),
   }
 }
 
@@ -111,8 +99,6 @@ function toMapPlace(row: Row): Place {
     commonsImageUrls: splitList(row.commons_image_urls),
     wikicommonsCategory: asString(row.wikicommons_category) || undefined,
     officialWebsiteUrls: [],
-    registryName: asString(row.registry_name) || 'Unspecified registry',
-    sourceFields: {},
   }
 }
 
@@ -148,10 +134,6 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
     where.push('p.country_label_en = ?')
     params.push(filters.country)
   }
-  if (filters.registry) {
-    where.push('p.registry_name = ?')
-    params.push(filters.registry)
-  }
   if (style) {
     where.push(`lower(COALESCE(p.architectural_style_label_en, '')) LIKE ? ESCAPE '\\'`)
     params.push(`%${escapeLike(style.toLocaleLowerCase())}%`)
@@ -174,7 +156,7 @@ const FULL_SELECT = `
     p.enWikiViewCount AS en_wiki_view_count,
     p.wikiViewCount AS wiki_view_count,
     p.wikipedia_sitelinks_count, p.source_record_urls, p.nativewiki_url, p.enwiki_url,
-    p.commons_image_urls, p.wikicommons_category, p.official_website_urls, p.registry_name, p.source_fields_json
+    p.commons_image_urls, p.wikicommons_category, p.official_website_urls
   FROM places p
 `
 
@@ -212,8 +194,7 @@ export class AtlasDatabase {
   getStats(): AtlasStats {
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
     const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
-    const registries = firstResult(this.database, "SELECT DISTINCT registry_name FROM places WHERE registry_name <> '' AND registry_name IS NOT NULL ORDER BY registry_name COLLATE NOCASE LIMIT 500").map((row) => asString(row.registry_name))
-    return { placeCount: asNumber(count?.count), countries, registries }
+    return { placeCount: asNumber(count?.count), countries }
   }
 
   search(filters: PlaceFilters, page: number, pageSize: number): PlaceSearchPage {
@@ -273,7 +254,7 @@ export class AtlasDatabase {
                 1 AS is_map_aggregate,
                 '' AS label_native, '' AS country_label_en,
                 '' AS heritage_designation_labels_native,
-                '' AS instance_of, '' AS registry_name, '' AS commons_image_urls, '' AS wikicommons_category
+                '' AS instance_of, '' AS commons_image_urls, '' AS wikicommons_category
          FROM matched
          GROUP BY longitude_bucket, latitude_bucket
          ORDER BY ${mapOrderColumn} DESC, qid ASC`,
@@ -286,7 +267,7 @@ export class AtlasDatabase {
     const rows = firstResult(
       this.database,
       `SELECT p.wikidata_qid AS qid, p.label_native, p.label_en, p.label_zh,
-              p.country_label_en, p.latitude, p.longitude, p.registry_name, p.commons_image_urls,
+              p.country_label_en, p.latitude, p.longitude, p.commons_image_urls,
               p.wikicommons_category,
               p.heritage_designation_labels_native, p.instance_of,
               p.wikiViewCount AS wiki_view_count, p.wikipedia_sitelinks_count,

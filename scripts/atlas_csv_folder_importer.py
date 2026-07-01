@@ -39,7 +39,6 @@ FolderProgressCallback = Callable[[int, int, Path, int], None]
 class FolderImportOptions:
     input_folder: Path
     output_path: Path
-    registry: str
     version: str
     name: str
     mode: str = "merge"
@@ -117,7 +116,6 @@ def import_folder(
     options = FolderImportOptions(
         input_folder=input_folder,
         output_path=output_path,
-        registry=options.registry.strip(),
         version=options.version.strip(),
         name=options.name.strip(),
         mode=options.mode,
@@ -129,8 +127,6 @@ def import_folder(
         raise ValueError(f"Input folder not found: {input_folder}")
     if options.mode not in {"merge", "replace"}:
         raise ValueError("Mode must be 'merge' or 'replace'.")
-    if not options.registry:
-        raise ValueError("Registry name is required.")
     if not options.version or not options.name:
         raise ValueError("Dataset version and name are required.")
     if manifest_path == output_path:
@@ -174,7 +170,6 @@ def import_folder(
                 ImportOptions(
                     input_path=input_path,
                     output_path=working_path,
-                    registry=options.registry,
                     version=options.version,
                     name=options.name,
                     mode=child_mode,
@@ -225,7 +220,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input-folder", type=Path, help="Folder to search recursively")
     parser.add_argument("--output", type=Path, help="SQLite database to create or update")
-    parser.add_argument("--registry", help="Registry name assigned to imported rows")
     parser.add_argument("--mode", choices=("merge", "replace"), default="merge")
     parser.add_argument("--manifest", type=Path, help="Optional atlas manifest JSON to write")
     parser.add_argument("--version", default=date.today().isoformat())
@@ -239,7 +233,6 @@ def run_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     required = (
         ("--input-folder", args.input_folder),
         ("--output", args.output),
-        ("--registry", args.registry),
     )
     missing = [flag for flag, value in required if not value]
     if missing:
@@ -247,7 +240,6 @@ def run_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     options = FolderImportOptions(
         input_folder=args.input_folder,
         output_path=args.output,
-        registry=args.registry,
         version=args.version,
         name=args.name or f"Heritage Atlas · {args.version}",
         mode=args.mode,
@@ -291,7 +283,6 @@ def run_ui() -> int:
             today = date.today().isoformat()
             self.folder_var = tk.StringVar()
             self.output_var = tk.StringVar()
-            self.registry_var = tk.StringVar(value="Unspecified registry")
             self.version_var = tk.StringVar(value=today)
             self.name_var = tk.StringVar(value=f"Heritage Atlas · {today}")
             self.mode_var = tk.StringVar(value="merge")
@@ -330,7 +321,6 @@ def run_ui() -> int:
             ttk.Separator(outer).grid(row=4, column=0, columnspan=3, sticky="ew", pady=12)
 
             for row, (label, variable) in enumerate((
-                ("Registry name", self.registry_var),
                 ("Dataset version", self.version_var),
                 ("Dataset name", self.name_var),
             ), start=5):
@@ -422,7 +412,6 @@ def run_ui() -> int:
             return FolderImportOptions(
                 input_folder=Path(self.folder_var.get()),
                 output_path=Path(self.output_var.get()),
-                registry=self.registry_var.get(),
                 version=self.version_var.get(),
                 name=self.name_var.get(),
                 mode=self.mode_var.get(),

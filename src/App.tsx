@@ -3,6 +3,7 @@ import { LocateFixed } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatViews } from './data'
+import { countryFlags } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
@@ -15,8 +16,8 @@ type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 
 const PAGE_SIZE = 20
-const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], registries: [] }
-const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', registry: '', style: '', sort: 'sitelinks' }
+const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [] }
+const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', style: '', sort: 'sitelinks' }
 const COMMONS_IMAGE_STEP = 8
 
 type WikipediaLoadState = 'idle' | 'loading' | 'ready' | 'error'
@@ -342,6 +343,7 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
 function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilters['sort']; onFocusMap: (place: Place) => void }) {
   const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia languages`
   const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
+  const flags = countryFlags(place.countryLabelEn)
   return (
     <article className="place-card">
       <a className="card-button" href={placeHref(place.qid)}>
@@ -361,16 +363,23 @@ function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilte
           </div>
         </div>
       </a>
-      <button
-        className="card-focus-button"
-        type="button"
-        onClick={() => onFocusMap(place)}
-        disabled={!hasCoordinates}
-        aria-label={hasCoordinates ? `Focus ${place.labelNative} on map` : `No map location for ${place.labelNative}`}
-        title={hasCoordinates ? 'Focus on map' : 'Map location unavailable'}
-      >
-        <LocateFixed size={18} strokeWidth={2} aria-hidden="true" />
-      </button>
+      <div className="card-rail">
+        <button
+          className="card-focus-button"
+          type="button"
+          onClick={() => onFocusMap(place)}
+          disabled={!hasCoordinates}
+          aria-label={hasCoordinates ? `Focus ${place.labelNative} on map` : `No map location for ${place.labelNative}`}
+          title={hasCoordinates ? 'Focus on map' : 'Map location unavailable'}
+        >
+          <LocateFixed size={18} strokeWidth={2} aria-hidden="true" />
+        </button>
+        {flags.length > 0 && (
+          <span className="card-country-flags">
+            {flags.map((flag) => <img key={flag.code} src={`https://flagcdn.com/${flag.code.toLowerCase()}.svg`} alt={`Flag of ${flag.name}`} title={flag.name} width="24" height="18" loading="lazy" referrerPolicy="no-referrer" />)}
+          </span>
+        )}
+      </div>
     </article>
   )
 }
@@ -938,7 +947,6 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         <label>Search<input value={filters.query} onChange={(event) => updateFilters({ query: event.target.value })} placeholder="Name, country, style, designation…" /></label>
         <label>Style keyword<input value={filters.style} onChange={(event) => updateFilters({ style: event.target.value })} placeholder="e.g. Baroque" /></label>
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label>Registry<select value={filters.registry} onChange={(event) => updateFilters({ registry: event.target.value })}><option value="">All registries</option>{stats.registries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
       </section>
 
