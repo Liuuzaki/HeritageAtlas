@@ -5,7 +5,7 @@ import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatViews } from './data'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
-import { clearInstalledAtlas, readInstalledAtlas, requestPersistentStorage, saveInstalledAtlas } from './storage'
+import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata } from './types'
 
 type Route = { kind: 'home' } | { kind: 'place'; qid: string }
@@ -880,9 +880,10 @@ type ExploreProps = {
   onDelete: () => void
   updating: boolean
   updateNote: string
+  localMatchesLatest: boolean | null
 }
 
-function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote }: ExploreProps) {
+function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote, localMatchesLatest }: ExploreProps) {
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [page, setPage] = useState(0)
   const [bounds, setBounds] = useState<MapBounds | null>(null)
@@ -897,7 +898,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
   const from = result.total ? page * PAGE_SIZE + 1 : 0
   const to = Math.min((page + 1) * PAGE_SIZE, result.total)
-  const updateAvailable = Boolean(manifest && manifest.version !== installed.version)
+  const updateAvailable = Boolean(manifest && localMatchesLatest === false)
 
   const updateFilters = (patch: Partial<PlaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))
@@ -927,7 +928,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
           <strong>{installed.name}</strong>
           <span>{stats.placeCount.toLocaleString()} places · {formatBytes(installed.bytes)} · {installed.version}</span>
           <span>Stored locally in this browser</span>
-          {updateAvailable ? <button className="small-button" onClick={onInstallLatest} disabled={updating}>{updating ? 'Updating…' : 'Update available'}</button> : <button className="small-button" onClick={onCheckUpdates} disabled={updating}>{updating ? 'Checking…' : 'Check for updates'}</button>}
+          {updateAvailable ? <button className="small-button" onClick={onInstallLatest} disabled={updating}>{updating ? 'Updating…' : 'Update'}</button> : <button className="small-button" onClick={onCheckUpdates} disabled={updating}>{updating ? 'Checking…' : 'Check for updates'}</button>}
           {updateNote && <span className="update-note">{updateNote}</span>}
           <button className="text-button" onClick={onDelete} disabled={updating}>Delete local data</button>
         </div>
@@ -965,11 +966,12 @@ type InstallerProps = {
   current: StoredAtlasMetadata | null
   progress: InstallProgress
   error: string
+  notice: string
   onDownload: () => void
   onImport: (file: File) => void
 }
 
-function Installer({ manifest, current, progress, error, onDownload, onImport }: InstallerProps) {
+function Installer({ manifest, current, progress, error, notice, onDownload, onImport }: InstallerProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const percent = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const working = progress.stage !== 'idle'
@@ -995,6 +997,7 @@ function Installer({ manifest, current, progress, error, onDownload, onImport }:
         <p>Download the catalogue once. It is saved privately in this browser and reopened automatically on later visits. Searches, filters, sorting, and 20-result pages then run locally.</p>
         {manifest && <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Download</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}</dl>}
         {current && <p className="notice">A previous dataset is available locally ({current.name}, {current.version}), but it could not be opened yet.</p>}
+        {notice && <p className="notice">{notice}</p>}
         {error && <p className="notice error">{error}</p>}
         {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</span><progress value={progress.received} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
         <div className="installer-actions">
@@ -1016,6 +1019,7 @@ export default function App() {
   const [progress, setProgress] = useState<InstallProgress>({ stage: 'idle', received: 0 })
   const [error, setError] = useState('')
   const [updateNote, setUpdateNote] = useState('')
+  const [localMatchesLatest, setLocalMatchesLatest] = useState<boolean | null>(null)
   const route = useHashRoute()
 
   const openLocalBytes = useCallback(async (bytes: Uint8Array) => {
@@ -1033,8 +1037,8 @@ export default function App() {
         if (local) {
           try {
             await openLocalBytes(local.bytes)
-            if (active) setInstalled(local.metadata)
-            return
+            if (!active) return
+            setInstalled(local.metadata)
           } catch (reason) {
             if (!(reason instanceof IncompatibleAtlasError)) throw reason
             await clearInstalledAtlas().catch(() => undefined)
@@ -1046,6 +1050,20 @@ export default function App() {
             setError('Your saved atlas used the previous data structure and was removed. Download the current dataset to continue.')
             return
           }
+
+          try {
+            const latestManifest = await loadManifest()
+            if (!active) return
+            setManifest(latestManifest)
+            const localSha256 = local.archiveBytes ? await sha256Hex(local.archiveBytes) : null
+            if (!active) return
+            const matches = localSha256?.toLowerCase() === latestManifest.sha256.toLowerCase()
+            setLocalMatchesLatest(matches)
+            setUpdateNote(matches ? '' : 'A newer dataset is available.')
+          } catch {
+            if (active) setUpdateNote('Could not check for dataset updates. Your local atlas is still available.')
+          }
+          return
         }
         const latestManifest = await loadManifest()
         if (active) setManifest(latestManifest)
@@ -1059,12 +1077,14 @@ export default function App() {
 
   useEffect(() => () => { database?.close() }, [database])
 
-  const installBytes = useCallback(async (bytes: Uint8Array, metadata: StoredAtlasMetadata) => {
+  const installBytes = useCallback(async (bytes: Uint8Array, metadata: StoredAtlasMetadata, archiveBytes?: Uint8Array) => {
     setProgress({ stage: 'installing', received: bytes.byteLength, total: bytes.byteLength })
     await openLocalBytes(bytes)
-    await saveInstalledAtlas(metadata, bytes)
+    await saveInstalledAtlas(metadata, bytes, archiveBytes)
     await requestPersistentStorage()
     setInstalled(metadata)
+    setLocalMatchesLatest(Boolean(archiveBytes))
+    setUpdateNote('')
     setError('')
     setProgress({ stage: 'idle', received: 0 })
   }, [openLocalBytes])
@@ -1073,17 +1093,20 @@ export default function App() {
     if (!manifest) return
     try {
       setError('')
+      setUpdateNote('')
       setProgress({ stage: 'downloading', received: 0, total: manifest.bytes })
       const sourceUrl = new URL(manifest.datasetUrl, new URL(import.meta.env.BASE_URL, window.location.origin)).toString()
       const archiveBytes = await downloadBytes(sourceUrl, (received, total) => setProgress({ stage: 'downloading', received, total: total ?? manifest.bytes }))
       setProgress({ stage: 'verifying', received: archiveBytes.byteLength, total: archiveBytes.byteLength })
       const actual = await sha256Hex(archiveBytes)
       if (actual.toLowerCase() !== manifest.sha256.toLowerCase()) {
-        throw new Error('The downloaded atlas archive did not match the GitHub release checksum.')
+        setProgress({ stage: 'idle', received: 0 })
+        setUpdateNote('The latest dataset could not be verified yet. Please try the download again in a moment.')
+        return
       }
       setProgress({ stage: 'extracting', received: 0 })
       const bytes = await extractSqliteFromZip(archiveBytes)
-      await installBytes(bytes, { version: manifest.version, name: manifest.name, bytes: bytes.byteLength, installedAt: new Date().toISOString(), sourceUrl, sha256: manifest.sha256 })
+      await installBytes(bytes, { version: manifest.version, name: manifest.name, bytes: bytes.byteLength, installedAt: new Date().toISOString(), sourceUrl, sha256: manifest.sha256 }, archiveBytes)
     } catch (reason) {
       setProgress({ stage: 'idle', received: 0 })
       setError(reason instanceof Error ? reason.message : 'Could not install the atlas.')
@@ -1093,6 +1116,7 @@ export default function App() {
   const importAtlas = useCallback(async (file: File) => {
     try {
       setError('')
+      setUpdateNote('')
       setProgress({ stage: 'downloading', received: 0, total: file.size })
       const bytes = new Uint8Array(await file.arrayBuffer())
       setProgress({ stage: 'installing', received: bytes.byteLength, total: bytes.byteLength })
@@ -1110,7 +1134,11 @@ export default function App() {
       setProgress({ stage: 'installing', received: 0 })
       const latestManifest = await loadManifest()
       setManifest(latestManifest)
-      setUpdateNote(latestManifest.version === installed?.version ? 'This browser already has the latest dataset.' : 'A newer dataset is available.')
+      const archiveBytes = await readInstalledAtlasArchive()
+      const localSha256 = archiveBytes ? await sha256Hex(archiveBytes) : null
+      const matches = localSha256?.toLowerCase() === latestManifest.sha256.toLowerCase()
+      setLocalMatchesLatest(matches)
+      setUpdateNote(matches ? 'This browser already has the latest dataset.' : 'A newer dataset is available.')
     } catch (reason) {
       setUpdateNote('')
       setError(reason instanceof Error ? reason.message : 'Could not check for updates.')
@@ -1126,6 +1154,7 @@ export default function App() {
       setDatabase(null)
       setStats(EMPTY_STATS)
       setInstalled(null)
+      setLocalMatchesLatest(null)
       await clearInstalledAtlas()
       window.location.hash = '/'
     } catch (reason) {
@@ -1134,13 +1163,13 @@ export default function App() {
   }, [database])
 
   if (!database || !installed) {
-    return <Installer manifest={manifest} current={installed} progress={progress} error={error} onDownload={downloadLatest} onImport={importAtlas} />
+    return <Installer manifest={manifest} current={installed} progress={progress} error={error} notice={updateNote} onDownload={downloadLatest} onImport={importAtlas} />
   }
 
   const closePlace = () => { window.location.hash = '/' }
 
   return <>
-    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} updating={progress.stage !== 'idle'} updateNote={updateNote} />
+    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} updating={progress.stage !== 'idle'} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
     {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePlace} />}
   </>
 }

@@ -5,10 +5,11 @@ The website no longer reads `public/data/places.json` at runtime.
 On the first visit, the visitor clicks **Download dataset**. The app downloads
 `atlas-sample.zip` from the repository's latest GitHub Release. The release API
 and asset name are configured in `site-public/data/atlas-manifest.json`. The app
-verifies GitHub's SHA-256 digest, extracts its SQLite database, then stores the
-database in the browser's Origin Private File System (OPFS) when available. It
-falls back to IndexedDB otherwise. Later visits reopen the stored dataset
-automatically.
+verifies GitHub's SHA-256 digest, extracts its SQLite database, then stores both
+the release ZIP and database in the browser's Origin Private File System (OPFS)
+when available. It falls back to IndexedDB otherwise. Later visits hash the
+stored ZIP to decide whether an update is needed, while reopening the stored
+database directly.
 
 The app then queries SQLite in the browser. Search, filters, map-viewport
 queries, sorting, and 20-result pagination do not request place data again.
@@ -55,7 +56,7 @@ latest release into the Pages artifact. The app downloads that same-origin ZIP
 and uses the asset size and SHA-256 digest supplied by GitHub. GitHub Pages never
 serves the unpacked SQLite database. Vite deploys only `site-public/`; files
 under `public/data/` remain local dataset build inputs and are not copied to
-`dist/`. The Vite development and preview servers expose the local release ZIP
+`dist/`. The Vite development and preview servers proxy the latest release ZIP
 at the same route so the installation flow can be tested locally. Publishing a
 GitHub Release triggers the Pages workflow, keeping the static ZIP synchronized
 with the latest-release API response.

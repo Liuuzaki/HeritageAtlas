@@ -24,13 +24,14 @@ HEADERS = [
 
 def row(qid: str, native: str, english: str, coordinates: str = "POINT(2 48)") -> list[str]:
     return [
-        qid, native, english, "中文名", coordinates, "French", "France",
-        "Monument historique | Patrimoine", "church | museum", "Gothic | Baroque", "+1926-00-00T00:00:00Z",
+        qid, native, english, "中文名", coordinates, "French", "France | Belgium",
+        "Monument historique | Patrimoine", "church | museum", "Gothic | Baroque",
+        "+1926-00-00T00:00:00Z | +1950-00-00T00:00:00Z",
         "12", "34", "46", "2", "https://registry.test/1 | https://registry.test/2",
         "https://fr.wikipedia.test/item", "https://en.wikipedia.test/item",
         "https://commons.test/first.jpg | https://commons.test/second.jpg",
         "https://commons.wikimedia.org/wiki/Category:Test_place",
-        "https://official.test/",
+        "https://official.test/ | https://other-official.test/",
     ]
 
 
@@ -73,14 +74,21 @@ class AtlasCsvImporterTest(unittest.TestCase):
             self.assertTrue(set(HEADERS).issubset(columns))
             self.assertIn("future_column", columns)
             self.assertEqual(stored[0:3], ("Nom natif", "English name", "中文名"))
+            self.assertEqual(stored[5], "France")
             self.assertEqual(stored[7], "church | museum")
+            self.assertEqual(stored[9], "+1926")
             self.assertEqual(stored[10:14], (12, 34, 46, 2))
             self.assertIn("first.jpg", stored[17])
             self.assertEqual(stored[18], "https://commons.wikimedia.org/wiki/Category:Test_place")
+            self.assertEqual(stored[19], "https://official.test/")
             self.assertIsNone(stored[20])
             self.assertIsNone(stored[21])
             self.assertEqual(stored[22], "future value")
-            self.assertEqual(json.loads(stored[23])["future_column"], "future value")
+            source_fields = json.loads(stored[23])
+            self.assertEqual(source_fields["country_label_en"], "France")
+            self.assertEqual(source_fields["inception_values"], "+1926")
+            self.assertEqual(source_fields["official_website_urls"], "https://official.test/")
+            self.assertEqual(source_fields["future_column"], "future value")
             self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["recordCount"], 1)
 
     def test_merge_updates_qid_and_preserves_other_places(self) -> None:

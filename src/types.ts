@@ -50,6 +50,7 @@ export type StoredAtlasMetadata = {
 export type StoredAtlas = {
   metadata: StoredAtlasMetadata
   bytes: Uint8Array
+  archiveBytes?: Uint8Array
   storage: 'opfs' | 'indexeddb'
 }
 

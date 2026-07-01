@@ -149,6 +149,20 @@ def split_values(value: str) -> list[str]:
     return [part.strip() for part in re.split(r"\s*\|\s*", value) if part.strip()]
 
 
+def first_value(value: str) -> str:
+    values = split_values(value)
+    return values[0] if values else ""
+
+
+_INCEPTION_YEAR = re.compile(r"^([+-]?\d+)(?:-|$)")
+
+
+def inception_year(value: str) -> str:
+    value = first_value(value)
+    match = _INCEPTION_YEAR.match(value)
+    return match.group(1) if match else value
+
+
 _FLOAT = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 _POINT = re.compile(rf"POINT\s*\(\s*({_FLOAT})\s+({_FLOAT})\s*\)", re.IGNORECASE)
 
@@ -198,6 +212,17 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
         return None, "qid"
     point = coordinates(row)
     latitude, longitude = point if point is not None else (None, None)
+    country_label_en = first_value(first(row, "country_label_en"))
+    inception_values = inception_year(first(row, "inception_values"))
+    official_website_urls = first_value(first(row, "official_website_urls"))
+    source_fields = dict(row)
+    for column, value in (
+        ("country_label_en", country_label_en),
+        ("inception_values", inception_values),
+        ("official_website_urls", official_website_urls),
+    ):
+        if column in source_fields:
+            source_fields[column] = value
 
     return {
         "wikidata_qid": qid,
@@ -206,11 +231,11 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
         "label_zh": first(row, "label_zh"),
         "coordinates_wkt": first(row, "coordinates_wkt"),
         "native_language_label_en": first(row, "native_language_label_en"),
-        "country_label_en": first(row, "country_label_en"),
+        "country_label_en": country_label_en,
         "heritage_designation_labels_native": first(row, "heritage_designation_labels_native"),
         "instance_of": first(row, "instance_of"),
         "architectural_style_label_en": first(row, "architectural_style_label_en"),
-        "inception_values": first(row, "inception_values"),
+        "inception_values": inception_values,
         "nativeWikiViewCount": integer(first(row, "nativewikiviewcount")),
         "enWikiViewCount": integer(first(row, "enwikiviewcount")),
         "wikiViewCount": integer(first(row, "wikiviewcount")),
@@ -220,11 +245,11 @@ def place_from_row(row: dict[str, str], registry: str) -> tuple[dict[str, Any] |
         "enwiki_url": first(row, "enwiki_url"),
         "commons_image_urls": first(row, "commons_image_urls"),
         "wikicommons_category": first(row, "wikicommons_category", "commons_category_url", "wikicommons_category_url"),
-        "official_website_urls": first(row, "official_website_urls"),
+        "official_website_urls": official_website_urls,
         "latitude": latitude,
         "longitude": longitude,
         "registry_name": registry,
-        "source_fields_json": json.dumps(row, ensure_ascii=False, separators=(",", ":")),
+        "source_fields_json": json.dumps(source_fields, ensure_ascii=False, separators=(",", ":")),
     }, None
 
 
