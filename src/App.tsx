@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { LocateFixed } from 'lucide-react'
+import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatViews } from './data'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
@@ -8,7 +9,10 @@ import { clearInstalledAtlas, readInstalledAtlas, requestPersistentStorage, save
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata } from './types'
 
 type Route = { kind: 'home' } | { kind: 'place'; qid: string }
-type InstallProgress = { stage: 'idle' | 'downloading' | 'installing'; received: number; total?: number }
+type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifying' | 'installing'; received: number; total?: number }
+type AtlasManifestConfig = { releaseApiUrl?: unknown; assetName?: unknown; archiveFormat?: unknown }
+type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
+type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 
 const PAGE_SIZE = 20
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], registries: [] }
@@ -165,15 +169,44 @@ async function loadManifest(): Promise<AtlasManifest> {
   if (!response.ok) throw new Error(`Could not load the atlas manifest: ${response.status}`)
   const raw: unknown = await response.json()
   if (!raw || typeof raw !== 'object') throw new Error('atlas-manifest.json must contain an object.')
-  const manifest = raw as Partial<AtlasManifest>
-  if (!manifest.version || !manifest.name || !manifest.datasetUrl) {
-    throw new Error('atlas-manifest.json needs version, name, and datasetUrl.')
+  const config = raw as AtlasManifestConfig
+  if (typeof config.releaseApiUrl !== 'string' || typeof config.assetName !== 'string' || config.archiveFormat !== 'zip') {
+    throw new Error('atlas-manifest.json needs releaseApiUrl, assetName, and ZIP archiveFormat.')
   }
-  return manifest as AtlasManifest
+
+  const releaseResponse = await fetch(config.releaseApiUrl, {
+    cache: 'no-store',
+    headers: { Accept: 'application/vnd.github+json' },
+  })
+  if (!releaseResponse.ok) throw new Error(`Could not load the latest GitHub release: ${releaseResponse.status}`)
+  const release = await releaseResponse.json() as GitHubRelease
+  const assets = Array.isArray(release.assets) ? release.assets as GitHubReleaseAsset[] : []
+  const asset = assets.find((candidate) => candidate.name === config.assetName)
+  if (!asset || typeof asset.size !== 'number') {
+    throw new Error(`The latest GitHub release does not contain ${config.assetName}.`)
+  }
+  if (typeof asset.digest !== 'string' || !/^sha256:[a-f\d]{64}$/i.test(asset.digest)) {
+    throw new Error(`GitHub did not provide a SHA-256 digest for ${config.assetName}.`)
+  }
+  if (typeof release.tag_name !== 'string' || !release.tag_name) {
+    throw new Error('The latest GitHub release does not have a tag name.')
+  }
+
+  return {
+    version: release.tag_name,
+    name: typeof release.name === 'string' && release.name ? release.name : release.tag_name,
+    datasetUrl: resolvePublicUrl(`data/${config.assetName}`),
+    archiveFormat: 'zip',
+    bytes: asset.size,
+    sha256: asset.digest.slice('sha256:'.length),
+  }
 }
 
 async function downloadBytes(url: string, onProgress: (received: number, total?: number) => void): Promise<Uint8Array> {
-  const response = await fetch(url, { cache: 'no-store' })
+  const response = await fetch(url, {
+    cache: 'no-store',
+    headers: { Accept: 'application/octet-stream' },
+  })
   if (!response.ok) throw new Error(`Could not download the atlas: ${response.status}`)
   const totalHeader = Number(response.headers.get('content-length') ?? '')
   const total = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : undefined
@@ -940,6 +973,13 @@ function Installer({ manifest, current, progress, error, onDownload, onImport }:
   const inputRef = useRef<HTMLInputElement | null>(null)
   const percent = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const working = progress.stage !== 'idle'
+  const progressLabel = progress.stage === 'downloading'
+    ? 'Downloading atlas…'
+    : progress.stage === 'extracting'
+      ? 'Extracting database…'
+      : progress.stage === 'verifying'
+        ? 'Verifying archive…'
+        : 'Installing local database…'
 
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -956,7 +996,7 @@ function Installer({ manifest, current, progress, error, onDownload, onImport }:
         {manifest && <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Download</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}</dl>}
         {current && <p className="notice">A previous dataset is available locally ({current.name}, {current.version}), but it could not be opened yet.</p>}
         {error && <p className="notice error">{error}</p>}
-        {working && <div className="install-progress"><strong>{progress.stage === 'downloading' ? 'Downloading atlas…' : 'Installing local database…'}</strong><span>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</span><progress value={progress.received} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
+        {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</span><progress value={progress.received} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
         <div className="installer-actions">
           <button className="primary-button" onClick={onDownload} disabled={!manifest || working}>{working ? 'Working…' : 'Download dataset'}</button>
           <button onClick={() => inputRef.current?.click()} disabled={working}>Import a .sqlite file</button>
@@ -1035,13 +1075,14 @@ export default function App() {
       setError('')
       setProgress({ stage: 'downloading', received: 0, total: manifest.bytes })
       const sourceUrl = new URL(manifest.datasetUrl, new URL(import.meta.env.BASE_URL, window.location.origin)).toString()
-      const bytes = await downloadBytes(sourceUrl, (received, total) => setProgress({ stage: 'downloading', received, total: total ?? manifest.bytes }))
-      if (manifest.sha256) {
-        const actual = await sha256Hex(bytes)
-        if (actual.toLocaleLowerCase() !== manifest.sha256.toLocaleLowerCase()) {
-          throw new Error('The downloaded atlas did not match the manifest checksum.')
-        }
+      const archiveBytes = await downloadBytes(sourceUrl, (received, total) => setProgress({ stage: 'downloading', received, total: total ?? manifest.bytes }))
+      setProgress({ stage: 'verifying', received: archiveBytes.byteLength, total: archiveBytes.byteLength })
+      const actual = await sha256Hex(archiveBytes)
+      if (actual.toLowerCase() !== manifest.sha256.toLowerCase()) {
+        throw new Error('The downloaded atlas archive did not match the GitHub release checksum.')
       }
+      setProgress({ stage: 'extracting', received: 0 })
+      const bytes = await extractSqliteFromZip(archiveBytes)
       await installBytes(bytes, { version: manifest.version, name: manifest.name, bytes: bytes.byteLength, installedAt: new Date().toISOString(), sourceUrl, sha256: manifest.sha256 })
     } catch (reason) {
       setProgress({ stage: 'idle', received: 0 })

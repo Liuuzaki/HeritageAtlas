@@ -3,6 +3,8 @@ name: Deploy Heritage Atlas to GitHub Pages
 on:
   push:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -31,6 +33,11 @@ jobs:
         run: npm install --registry=https://registry.npmjs.org/
       - name: Build
         run: npm run build
+      - name: Fetch latest release dataset
+        run: >-
+          curl --fail --location --retry 3
+          --output dist/data/atlas-sample.zip
+          https://github.com/Liuuzaki/HeritageAtlas/releases/latest/download/atlas-sample.zip
       - name: Configure Pages
         uses: actions/configure-pages@v6
       - name: Upload site

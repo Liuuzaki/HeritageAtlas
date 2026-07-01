@@ -32,8 +32,9 @@ export type AtlasManifest = {
   version: string
   name: string
   datasetUrl: string
-  bytes?: number
-  sha256?: string
+  archiveFormat: 'zip'
+  bytes: number
+  sha256: string
   recordCount?: number
 }
 

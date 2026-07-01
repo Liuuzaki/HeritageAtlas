@@ -3,9 +3,12 @@
 The website no longer reads `public/data/places.json` at runtime.
 
 On the first visit, the visitor clicks **Download dataset**. The app downloads
-the SQLite file named in `public/data/atlas-manifest.json`, stores it in the
-browser's Origin Private File System (OPFS) when available, and falls back to
-IndexedDB otherwise. Later visits reopen the stored dataset automatically.
+`atlas-sample.zip` from the repository's latest GitHub Release. The release API
+and asset name are configured in `site-public/data/atlas-manifest.json`. The app
+verifies GitHub's SHA-256 digest, extracts its SQLite database, then stores the
+database in the browser's Origin Private File System (OPFS) when available. It
+falls back to IndexedDB otherwise. Later visits reopen the stored dataset
+automatically.
 
 The app then queries SQLite in the browser. Search, filters, map-viewport
 queries, sorting, and 20-result pagination do not request place data again.
@@ -28,10 +31,8 @@ python scripts/atlas_csv_importer.py `
   --output "build/heritage-atlas-2026-06.sqlite" `
   --registry "Mérimée" `
   --mode merge `
-  --manifest "public/data/atlas-manifest.json" `
   --version "2026-06-27" `
-  --name "Heritage Atlas · 2026-06-27" `
-  --dataset-url "https://YOUR-DATA-HOST/heritage-atlas-2026-06.sqlite"
+  --name "Heritage Atlas · 2026-06-27"
 ```
 
 Use `--mode replace` when the CSV is the complete dataset. The default
@@ -47,13 +48,17 @@ as SQLite columns and shown on the record page. `label_native` is the primary
 place heading; `label_en` and `label_zh` appear beneath it. The first URL in
 `commons_image_urls` is used as the thumbnail.
 
-Upload the `.sqlite` file to a host that permits cross-origin `fetch()`
-requests from your GitHub Pages domain. The manifest stays in the site repo;
-it is tiny and tells the app whether a newer dataset exists.
-
-Do not put a large production SQLite file in the GitHub Pages repository
-unless you deliberately want GitHub Pages to deliver the initial download.
-A GitHub Release asset or a separate CDN is a better default.
+Package the `.sqlite` file as `atlas-sample.zip` and upload that ZIP as a GitHub
+Release asset. The manifest stays in the site repo and points to GitHub's
+latest-release API. The deployment workflow fetches `atlas-sample.zip` from the
+latest release into the Pages artifact. The app downloads that same-origin ZIP
+and uses the asset size and SHA-256 digest supplied by GitHub. GitHub Pages never
+serves the unpacked SQLite database. Vite deploys only `site-public/`; files
+under `public/data/` remain local dataset build inputs and are not copied to
+`dist/`. The Vite development and preview servers expose the local release ZIP
+at the same route so the installation flow can be tested locally. Publishing a
+GitHub Release triggers the Pages workflow, keeping the static ZIP synchronized
+with the latest-release API response.
 
 ## What the database contains
 

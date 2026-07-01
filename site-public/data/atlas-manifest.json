@@ -1,0 +1,5 @@
+{
+  "releaseApiUrl": "https://api.github.com/repos/Liuuzaki/HeritageAtlas/releases/latest",
+  "assetName": "atlas-sample.zip",
+  "archiveFormat": "zip"
+}
