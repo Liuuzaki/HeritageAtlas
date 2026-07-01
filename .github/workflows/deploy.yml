@@ -3,8 +3,6 @@ name: Deploy Heritage Atlas to GitHub Pages
 on:
   push:
     branches: [main]
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
