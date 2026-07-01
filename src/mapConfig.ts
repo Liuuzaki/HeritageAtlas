@@ -1,0 +1,1 @@
+export const INDIVIDUAL_MARKER_ZOOM = 9

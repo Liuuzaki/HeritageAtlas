@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react'
 import L from 'leaflet'
-import 'leaflet.markercluster'
 import 'leaflet/dist/leaflet.css'
-import 'leaflet.markercluster/dist/MarkerCluster.css'
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { formatViews } from './data'
 import { thumbnailImageUrl } from './images'
+import { INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
 import type { MapBounds, Place } from './types'
 
 // Suitable for local development and a very small public demo. Before public
@@ -16,7 +14,6 @@ const TILE_ATTRIBUTION =
 const VIEW_COUNT_MAX = 10_000_000
 const VIEW_COUNT_COLORS = ['#27003e', '#7f13c3', '#2469ff', '#00a2ff', '#00fff2'] as const
 const SITELINK_COUNT_MAX = 100
-const INDIVIDUAL_MARKER_ZOOM = 9
 const FOCUS_MARKER_ZOOM = 12
 const CLUSTER_ICON_SIZE = 32
 
@@ -118,7 +115,7 @@ function countMarkerIcon(pointCount: number, highestValue: number, config: Metri
   const color = metricColor(highestValue, config.max)
   const textColor = metricTextColor(highestValue, config.max)
   return L.divIcon({
-    className: 'marker-cluster view-count-cluster',
+    className: 'view-count-cluster',
     html: `<span style="--cluster-color: ${color}; --cluster-text-color: ${textColor}" title="${formattedCount} places; highest has ${config.format(highestValue)} ${config.noun}">${formattedCount}</span>`,
     iconSize: L.point(CLUSTER_ICON_SIZE, CLUSTER_ICON_SIZE),
   })
@@ -178,30 +175,15 @@ function toBounds(map: L.Map): MapBounds {
   }
 }
 
-function bringHighMetricMarkersToFront(
-  markers: L.MarkerClusterGroup,
-  metricValues: WeakMap<L.Layer, number>,
-): void {
-  markers.getLayers()
-    .sort((first, second) => (metricValues.get(first) ?? 0) - (metricValues.get(second) ?? 0))
-    .forEach((layer) => {
-      if (layer instanceof L.CircleMarker) layer.bringToFront()
-    })
-}
-
 export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPlace, onViewportChanged }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
-  const markerLayerRef = useRef<L.MarkerClusterGroup | null>(null)
+  const markerLayerRef = useRef<L.LayerGroup | null>(null)
   const legendElementRef = useRef<HTMLDivElement | null>(null)
   const metricRef = useRef<ColorMetric>(colorMetric)
-  const markerMetricValuesRef = useRef(new WeakMap<L.Layer, number>())
-  const markerPointCountsRef = useRef(new WeakMap<L.Layer, number>())
   const markerLayersRef = useRef(new Map<string, L.Layer>())
   const pendingFocusRef = useRef<MapFocusRequest | null>(null)
-  const pendingClusterResetRef = useRef(false)
   const dataKeyRef = useRef(dataKey)
-  const aggregatedModeRef = useRef(false)
   const onOpenRef = useRef(onOpenPlace)
   const onViewportRef = useRef(onViewportChanged)
 
@@ -254,44 +236,17 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
     }
     legend.addTo(map)
 
-    const markers = L.markerClusterGroup({
-      chunkedLoading: false,
-      chunkInterval: 20,
-      chunkDelay: 10,
-      maxClusterRadius: (zoom) => zoom <= 4 ? 72 : zoom <= 6 ? 60 : 48,
-      spiderfyOnMaxZoom: true,
-      showCoverageOnHover: false,
-      disableClusteringAtZoom: INDIVIDUAL_MARKER_ZOOM,
-      iconCreateFunction: (cluster) => {
-        const childMarkers = cluster.getAllChildMarkers()
-        const highestValue = childMarkers.reduce(
-          (highest, marker) => Math.max(highest, markerMetricValuesRef.current.get(marker) ?? 0),
-          0,
-        )
-        const pointCount = childMarkers.reduce(
-          (total, marker) => total + (markerPointCountsRef.current.get(marker) ?? 1),
-          0,
-        )
-        const config = METRIC_CONFIGS[metricRef.current]
-        cluster.setZIndexOffset(metricZIndex(highestValue, config.max))
-        return countMarkerIcon(pointCount, highestValue, config)
-      },
-    })
+    const markers = L.layerGroup()
+    // Lower zooms arrive pre-aggregated from AtlasDatabase. Keeping one plain
+    // canvas-backed layer avoids building a second, conflicting cluster tree.
     markers.addTo(map)
 
     const reportViewport = () => {
       onViewportRef.current(toBounds(map))
       revealFocusedMarker()
     }
-    const prepareForZoom = () => { pendingClusterResetRef.current = true }
-    const restackMarkers = () => bringHighMetricMarkersToFront(markers, markerMetricValuesRef.current)
-
-    // Pans load additional markers into the existing cluster tree. Zooms mark
-    // that tree for replacement before reporting the newly visible viewport.
     map.on('moveend', reportViewport)
     map.on('resize', reportViewport)
-    map.on('zoomstart', prepareForZoom)
-    map.on('zoomend', restackMarkers)
     mapRef.current = map
     markerLayerRef.current = markers
     reportViewport()
@@ -299,8 +254,6 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
     return () => {
       map.off('moveend', reportViewport)
       map.off('resize', reportViewport)
-      map.off('zoomstart', prepareForZoom)
-      map.off('zoomend', restackMarkers)
       map.remove()
       mapRef.current = null
       markerLayerRef.current = null
@@ -325,23 +278,24 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
     if (!markers || !map) return
 
     const dataChanged = dataKeyRef.current !== dataKey
-    const aggregatedMode = places.length
-      ? places.some((place) => place.mapAggregate)
-      : aggregatedModeRef.current
-    const modeChanged = aggregatedMode !== aggregatedModeRef.current
-    if (pendingClusterResetRef.current || dataChanged || modeChanged) {
+    if (dataChanged) {
       markers.clearLayers()
       markerLayersRef.current.clear()
-      pendingClusterResetRef.current = false
       dataKeyRef.current = dataKey
     }
 
-    if (aggregatedMode !== aggregatedModeRef.current) {
-      map.removeLayer(markers)
-      const options = markers.options as L.MarkerClusterGroupOptions
-      options.disableClusteringAtZoom = aggregatedMode ? undefined : INDIVIDUAL_MARKER_ZOOM
-      markers.addTo(map)
-      aggregatedModeRef.current = aggregatedMode
+    const showsIndividualMarkers = map.getZoom() >= INDIVIDUAL_MARKER_ZOOM
+    const visibleQids = new Set<string>()
+    for (const place of places) {
+      if ((place.mapAggregate || showsIndividualMarkers)
+        && typeof place.latitude === 'number' && typeof place.longitude === 'number') {
+        visibleQids.add(place.qid)
+      }
+    }
+    for (const [qid, layer] of markerLayersRef.current) {
+      if (visibleQids.has(qid)) continue
+      markers.removeLayer(layer)
+      markerLayersRef.current.delete(qid)
     }
 
     const config = METRIC_CONFIGS[colorMetric]
@@ -351,6 +305,7 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
     const newLayers: L.Layer[] = []
 
     for (const place of placesByMetric) {
+      if (!place.mapAggregate && !showsIndividualMarkers) continue
       if (typeof place.latitude !== 'number' || typeof place.longitude !== 'number') continue
       if (markerLayersRef.current.has(place.qid)) continue
       const pointCount = place.mapPointCount ?? 1
@@ -361,8 +316,6 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
           icon: countMarkerIcon(pointCount, value, config),
           zIndexOffset: metricZIndex(value, config.max),
         })
-        markerMetricValuesRef.current.set(marker, value)
-        markerPointCountsRef.current.set(marker, pointCount)
         marker.on('click', () => {
           const map = mapRef.current
           if (map) map.setView(marker.getLatLng(), Math.min(map.getZoom() + 2, map.getMaxZoom()))
@@ -379,24 +332,19 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
         fillColor: metricColor(value, config.max),
         fillOpacity: 0.95,
       })
-      markerMetricValuesRef.current.set(marker, value)
-      markerPointCountsRef.current.set(marker, 1)
-
-      marker.bindTooltip(popupHtml(place, colorMetric), {
+      marker.bindTooltip(() => popupHtml(place, colorMetric), {
         className: 'place-map-tooltip',
         direction: 'top',
         offset: [0, -10],
         opacity: 1,
       })
-      marker.bindPopup(popupHtml(place, colorMetric), { closeButton: false, offset: [0, -2] })
       marker.on('click', () => onOpenRef.current(place.qid))
       markerLayersRef.current.set(place.qid, marker)
       newLayers.push(marker)
     }
 
     if (newLayers.length) {
-      markers.addLayers(newLayers)
-      bringHighMetricMarkersToFront(markers, markerMetricValuesRef.current)
+      newLayers.forEach((layer) => markers.addLayer(layer))
     }
     revealFocusedMarker()
   }, [places, dataKey, colorMetric, revealFocusedMarker])

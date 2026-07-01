@@ -1,10 +1,10 @@
 import { loadSqlJs, type SqlDatabase, type SqlValue } from './sqlite'
+import { INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
 import type { AtlasStats, MapBounds, Place, PlaceFilters, PlaceSearchPage } from './types'
 
 const DELIMITER = '\u001f'
 const MAP_AGGREGATE_CELL_SIZE_PX = 72
 const MAP_TILE_SIZE_PX = 256
-const INDIVIDUAL_MARKER_ZOOM = 7
 type Row = Record<string, SqlValue | undefined>
 
 function mapBucketCellSize(zoom: number): number {
@@ -238,17 +238,12 @@ export class AtlasDatabase {
     return row ? toPlace(row) : undefined
   }
 
-  getMapPlaces(filters: PlaceFilters, bounds: MapBounds, limit = 2000): Place[] {
-    const unboundedWhere = filtersToWhere(filters)
-    const countRow = firstResult(
-      this.database,
-      `SELECT COUNT(*) AS count FROM places p ${unboundedWhere.sql}`,
-      unboundedWhere.params,
-    )[0]
-    const placeCount = asNumber(countRow?.count)
+  getMapPlaces(filters: PlaceFilters, bounds: MapBounds): Place[] {
     const mapOrderColumn = filters.sort === 'sitelinks' ? 'wikipedia_sitelinks_count' : 'wiki_view_count'
 
-    if (placeCount > limit && bounds.zoom < INDIVIDUAL_MARKER_ZOOM) {
+    if (bounds.zoom < INDIVIDUAL_MARKER_ZOOM) {
+      // Use one aggregation strategy below the shared threshold, even for
+      // small result sets, so isolated places cannot leak through as dots.
       // Anchor buckets to a zoom-level world grid, then load complete cells.
       // Their membership and centroid therefore stay fixed while the viewport
       // pans; only a zoom change selects a different grid resolution.
