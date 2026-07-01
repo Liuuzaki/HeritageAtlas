@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet.markercluster'
 import 'leaflet/dist/leaflet.css'
@@ -16,7 +16,8 @@ const TILE_ATTRIBUTION =
 const VIEW_COUNT_MAX = 10_000_000
 const VIEW_COUNT_COLORS = ['#27003e', '#7f13c3', '#2469ff', '#00a2ff', '#00fff2'] as const
 const SITELINK_COUNT_MAX = 100
-const INDIVIDUAL_MARKER_ZOOM = 10
+const INDIVIDUAL_MARKER_ZOOM = 9
+const FOCUS_MARKER_ZOOM = 12
 const CLUSTER_ICON_SIZE = 32
 
 type ColorMetric = 'views' | 'sitelinks'
@@ -55,8 +56,16 @@ type Props = {
   places: Place[]
   dataKey: string
   colorMetric: ColorMetric
+  focusRequest: MapFocusRequest | null
   onOpenPlace: (qid: string) => void
   onViewportChanged: (bounds: MapBounds) => void
+}
+
+export type MapFocusRequest = {
+  qid: string
+  latitude: number
+  longitude: number
+  requestId: number
 }
 
 function escapeHtml(value: string): string {
@@ -180,7 +189,7 @@ function bringHighMetricMarkersToFront(
     })
 }
 
-export function MapPanel({ places, dataKey, colorMetric, onOpenPlace, onViewportChanged }: Props) {
+export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPlace, onViewportChanged }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const markerLayerRef = useRef<L.MarkerClusterGroup | null>(null)
@@ -189,11 +198,22 @@ export function MapPanel({ places, dataKey, colorMetric, onOpenPlace, onViewport
   const markerMetricValuesRef = useRef(new WeakMap<L.Layer, number>())
   const markerPointCountsRef = useRef(new WeakMap<L.Layer, number>())
   const markerLayersRef = useRef(new Map<string, L.Layer>())
+  const pendingFocusRef = useRef<MapFocusRequest | null>(null)
   const pendingClusterResetRef = useRef(false)
   const dataKeyRef = useRef(dataKey)
   const aggregatedModeRef = useRef(false)
   const onOpenRef = useRef(onOpenPlace)
   const onViewportRef = useRef(onViewportChanged)
+
+  const revealFocusedMarker = useCallback(() => {
+    const request = pendingFocusRef.current
+    if (!request) return
+    const layer = markerLayersRef.current.get(request.qid)
+    if (!(layer instanceof L.CircleMarker)) return
+    layer.bringToFront()
+    layer.openTooltip()
+    pendingFocusRef.current = null
+  }, [])
 
   useEffect(() => {
     onOpenRef.current = onOpenPlace
@@ -259,7 +279,10 @@ export function MapPanel({ places, dataKey, colorMetric, onOpenPlace, onViewport
     })
     markers.addTo(map)
 
-    const reportViewport = () => onViewportRef.current(toBounds(map))
+    const reportViewport = () => {
+      onViewportRef.current(toBounds(map))
+      revealFocusedMarker()
+    }
     const prepareForZoom = () => { pendingClusterResetRef.current = true }
     const restackMarkers = () => bringHighMetricMarkersToFront(markers, markerMetricValuesRef.current)
 
@@ -283,7 +306,18 @@ export function MapPanel({ places, dataKey, colorMetric, onOpenPlace, onViewport
       markerLayerRef.current = null
       legendElementRef.current = null
     }
-  }, [])
+  }, [revealFocusedMarker])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !focusRequest) return
+    pendingFocusRef.current = focusRequest
+    map.setView(
+      [focusRequest.latitude, focusRequest.longitude],
+      Math.max(map.getZoom(), FOCUS_MARKER_ZOOM),
+      { animate: false },
+    )
+  }, [focusRequest])
 
   useEffect(() => {
     const markers = markerLayerRef.current
@@ -364,7 +398,8 @@ export function MapPanel({ places, dataKey, colorMetric, onOpenPlace, onViewport
       markers.addLayers(newLayers)
       bringHighMetricMarkersToFront(markers, markerMetricValuesRef.current)
     }
-  }, [places, dataKey, colorMetric])
+    revealFocusedMarker()
+  }, [places, dataKey, colorMetric, revealFocusedMarker])
 
   return <div ref={containerRef} className="map" aria-label="Interactive heritage map" />
 }

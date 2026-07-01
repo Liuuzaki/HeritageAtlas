@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { LocateFixed } from 'lucide-react'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatViews } from './data'
-import { MapPanel } from './MapPanel'
+import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, requestPersistentStorage, saveInstalledAtlas } from './storage'
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata } from './types'
@@ -305,8 +306,9 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
   return <a href={fullResolutionImageUrl(source)} target="_blank" rel="noreferrer" className="thumbnail-link">{image}</a>
 }
 
-function PlaceCard({ place, sort }: { place: Place; sort: PlaceFilters['sort'] }) {
+function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilters['sort']; onFocusMap: (place: Place) => void }) {
   const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia languages`
+  const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
   return (
     <article className="place-card">
       <a className="card-button" href={placeHref(place.qid)}>
@@ -326,6 +328,16 @@ function PlaceCard({ place, sort }: { place: Place; sort: PlaceFilters['sort'] }
           </div>
         </div>
       </a>
+      <button
+        className="card-focus-button"
+        type="button"
+        onClick={() => onFocusMap(place)}
+        disabled={!hasCoordinates}
+        aria-label={hasCoordinates ? `Focus ${place.labelNative} on map` : `No map location for ${place.labelNative}`}
+        title={hasCoordinates ? 'Focus on map' : 'Map location unavailable'}
+      >
+        <LocateFixed size={18} strokeWidth={2} aria-hidden="true" />
+      </button>
     </article>
   )
 }
@@ -841,6 +853,8 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [page, setPage] = useState(0)
   const [bounds, setBounds] = useState<MapBounds | null>(null)
+  const [mapFocusRequest, setMapFocusRequest] = useState<MapFocusRequest | null>(null)
+  const mapFocusRequestId = useRef(0)
 
   useEffect(() => { document.title = 'Heritage Atlas' }, [])
 
@@ -855,6 +869,17 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const updateFilters = (patch: Partial<PlaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))
     setPage(0)
+  }
+
+  const focusPlaceOnMap = (place: Place) => {
+    if (typeof place.latitude !== 'number' || typeof place.longitude !== 'number') return
+    mapFocusRequestId.current += 1
+    setMapFocusRequest({
+      qid: place.qid,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      requestId: mapFocusRequestId.current,
+    })
   }
 
   return (
@@ -886,9 +911,9 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       <p className="results-summary">{result.total.toLocaleString()} places match. Results {from.toLocaleString()}–{to.toLocaleString()} are loaded locally; the map clusters all matching places in the current view.</p>
 
       <section className="atlas-layout">
-        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
+        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
         <aside className="place-list" aria-label="Heritage place results">
-          {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} />)}
+          {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}
           {!result.items.length && <p className="notice">No places match these filters.</p>}
           {result.total > PAGE_SIZE && <nav className="pagination" aria-label="Results pagination">
             <button onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0}>← Previous</button>
