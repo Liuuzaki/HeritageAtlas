@@ -87,6 +87,7 @@ type TagNameInfo = {
   nativeName?: string
   nativeLanguageName?: string
   chineseName?: string
+  englishDescription?: string
   wikidataUrl: string
 }
 type Tag = { label: string; qid?: string }
@@ -98,6 +99,7 @@ type TagLookupState =
 type WikidataEntity = {
   id?: string
   labels?: Record<string, { value?: string }>
+  descriptions?: Record<string, { value?: string }>
   claims?: Record<string, { mainsnak?: { datavalue?: { value?: unknown } } }[]>
 }
 type WikidataEntityResponse = {
@@ -284,7 +286,7 @@ async function fetchTagNameInfo(qid: string, nativeLanguageLabel: string | undef
     const entityResponse = await fetch(wikidataApiUrl({
       action: 'wbgetentities',
       ids: qid,
-      props: 'labels|claims',
+      props: 'labels|descriptions|claims',
       languages: [...new Set([nativeLanguageCode, 'zh', 'zh-hans', 'zh-hant', 'en'].filter(Boolean))].join('|'),
       languagefallback: '1',
     }))
@@ -297,6 +299,7 @@ async function fetchTagNameInfo(qid: string, nativeLanguageLabel: string | undef
       nativeName: localizedNativeName || nativeNameFromEntity(entity),
       nativeLanguageName: nativeLanguageLabel,
       chineseName: entity?.labels?.zh?.value || entity?.labels?.['zh-hans']?.value || entity?.labels?.['zh-hant']?.value,
+      englishDescription: entity?.descriptions?.en?.value,
       wikidataUrl: `https://www.wikidata.org/wiki/${qid}`,
     }
   })()
@@ -498,24 +501,25 @@ function TagHelp({ tag, placement = 'below' }: { tag: Tag; placement?: 'above' |
       <button type="button" className="tag-help-button" aria-label={`About ${tag.label}`}>
         <HelpCircle size={17} aria-hidden="true" />
       </button>
-      {open && <TagTooltip tag={tag} lookup={lookup} />}
+      {open && <TagTooltip tag={tag} lookup={lookup} showNativeName={false} />}
     </span>
   )
 }
 
-function TagTooltip({ tag, lookup }: { tag: Tag; lookup: TagLookupState }) {
+function TagTooltip({ tag, lookup, showNativeName = true }: { tag: Tag; lookup: TagLookupState; showNativeName?: boolean }) {
   if (lookup.status === 'idle' || lookup.status === 'loading') {
-    return <span className="tag-tooltip" role="tooltip">Loading Wikidata names...</span>
+    return <span className="tag-tooltip" role="tooltip">Loading Wikidata details...</span>
   }
   if (lookup.status === 'error') {
-    return <span className="tag-tooltip" role="tooltip">{tag.qid ? 'Wikidata names unavailable.' : 'Wikidata QID not recorded.'}</span>
+    return <span className="tag-tooltip" role="tooltip">{tag.qid ? 'Wikidata details unavailable.' : 'Wikidata QID not recorded.'}</span>
   }
 
   const { info } = lookup
   return (
     <span className="tag-tooltip" role="tooltip">
-      <span><strong>{info.nativeLanguageName ? `${info.nativeLanguageName} name` : 'Native name'}</strong>{info.nativeName || 'Not recorded'}</span>
+      {showNativeName && <span><strong>{info.nativeLanguageName ? `${info.nativeLanguageName} name` : 'Native name'}</strong>{info.nativeName || 'Not recorded'}</span>}
       <span><strong>Chinese name</strong>{info.chineseName || 'Not recorded'}</span>
+      <span><strong>English description</strong>{info.englishDescription || 'Not recorded'}</span>
       <a href={info.wikidataUrl} target="_blank" rel="noreferrer">Wikidata {info.qid}</a>
     </span>
   )
@@ -1106,13 +1110,28 @@ function TimespanFilter({ filters, onChange }: {
   filters: PlaceFilters
   onChange: (patch: Partial<PlaceFilters>) => void
 }) {
-  const updateYear = (key: 'timespanStart' | 'timespanEnd', value: string) => {
-    if (value === '') {
-      onChange({ [key]: null })
-      return
-    }
+  const [startInput, setStartInput] = useState(filters.timespanStart?.toString() ?? '')
+  const [endInput, setEndInput] = useState(filters.timespanEnd?.toString() ?? '')
+
+  useEffect(() => {
+    setStartInput(filters.timespanStart?.toString() ?? '')
+  }, [filters.timespanStart])
+
+  useEffect(() => {
+    setEndInput(filters.timespanEnd?.toString() ?? '')
+  }, [filters.timespanEnd])
+
+  const parseYear = (value: string): number | null => {
+    if (value === '') return null
     const year = Number(value)
-    if (Number.isFinite(year)) onChange({ [key]: Math.trunc(year) })
+    return Number.isFinite(year) ? Math.trunc(year) : null
+  }
+
+  const applyTimespan = () => {
+    const timespanStart = parseYear(startInput)
+    const timespanEnd = parseYear(endInput)
+    if (timespanStart === filters.timespanStart && timespanEnd === filters.timespanEnd) return
+    onChange({ timespanStart, timespanEnd })
   }
 
   return (
@@ -1131,8 +1150,8 @@ function TimespanFilter({ filters, onChange }: {
             <HelpCircle size={15} aria-hidden="true" />
           </button>
           <span id="timespan-help-tooltip" className="timespan-tooltip" role="tooltip">
-            <p>Use negative years for BC.</p>
-            <p>Disabled by default because only about one-third of places have inception data.</p>
+            <p>Use negative years for BCE.</p>
+            <p>Disabled by default because construction date data is available for only about one-third of places.</p>
           </span>
         </span>
       </div>
@@ -1140,21 +1159,35 @@ function TimespanFilter({ filters, onChange }: {
         <input
           type="number"
           step="1"
-          value={filters.timespanStart ?? ''}
+          value={startInput}
           placeholder="From"
           aria-label="Timespan from year"
           disabled={!filters.timespanEnabled}
-          onChange={(event) => updateYear('timespanStart', event.target.value)}
+          onChange={(event) => setStartInput(event.target.value)}
+          onBlur={applyTimespan}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              applyTimespan()
+            }
+          }}
         />
         <span aria-hidden="true">–</span>
         <input
           type="number"
           step="1"
-          value={filters.timespanEnd ?? ''}
+          value={endInput}
           placeholder="To"
           aria-label="Timespan until year"
           disabled={!filters.timespanEnabled}
-          onChange={(event) => updateYear('timespanEnd', event.target.value)}
+          onChange={(event) => setEndInput(event.target.value)}
+          onBlur={applyTimespan}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              applyTimespan()
+            }
+          }}
         />
       </div>
     </div>
@@ -1169,20 +1202,9 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const [mapFocusRequest, setMapFocusRequest] = useState<MapFocusRequest | null>(null)
   const mapFocusRequestId = useRef(0)
-  const appliedQuery = useRef('')
   const placeListRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => { document.title = 'Heritage Atlas' }, [])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (appliedQuery.current === searchInput) return
-      appliedQuery.current = searchInput
-      setFilters((current) => ({ ...current, query: searchInput }))
-      setPage(0)
-    }, 220)
-    return () => window.clearTimeout(timer)
-  }, [searchInput])
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
@@ -1201,6 +1223,11 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const updateFilters = (patch: Partial<PlaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))
     setPage(0)
+  }
+
+  const applySearch = () => {
+    if (searchInput === filters.query) return
+    updateFilters({ query: searchInput })
   }
 
   const focusPlaceOnMap = (place: Place) => {
@@ -1242,7 +1269,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       </header>
 
       <section className="controls" aria-label="Place filters">
-        <label>Search<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Name, country, style, designation…" /></label>
+        <label>Search<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} onBlur={applySearch} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applySearch() } }} placeholder="Name, country, style, designation…" /></label>
         <TagFilterDropdown filters={filters} stats={{ ...stats, ...tagFilterStats }} onChange={updateFilters} />
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
