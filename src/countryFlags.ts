@@ -18,6 +18,8 @@ const COUNTRY_ALIASES: Record<string, string> = {
   'czech republic': 'CZ',
   'united states of america': 'US',
   'united states': 'US',
+  'russia': 'RU',
+  'serbia': 'RS',
 }
 
 function buildCountryCodes() {
