@@ -193,6 +193,35 @@ h1 {
   font-size: .88rem;
 }
 
+.tag-filter-menu-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-filter-sort {
+  padding: 4px 7px;
+  border: 1px solid #c8d3dd;
+  border-radius: 999px;
+  background: #fff;
+  color: #42647c;
+  cursor: pointer;
+  font-size: .7rem;
+  font-weight: 750;
+}
+
+.tag-filter-sort[aria-pressed="true"] {
+  border-color: #8bb7ae;
+  background: #e3f2ef;
+  color: #175a52;
+}
+
+.tag-filter-sort:focus-visible,
+.tag-filter-clear:focus-visible {
+  outline: 2px solid #39779f;
+  outline-offset: 2px;
+}
+
 .tag-filter-clear {
   display: inline-flex;
   align-items: center;
@@ -262,6 +291,25 @@ h1 {
   cursor: pointer;
   font-size: .82rem;
   font-weight: 600;
+}
+
+.tag-filter-option-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.tag-filter-option-label > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tag-filter-total {
+  flex: 0 0 auto;
+  color: #8a94a3;
+  font-size: .76rem;
+  font-weight: 500;
 }
 
 .tag-filter-option input {

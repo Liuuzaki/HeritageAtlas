@@ -457,12 +457,6 @@ function TagItem({ tag, nativeLanguageLabel }: { tag: Tag; nativeLanguageLabel?:
 function useTagTooltip(tag: Tag, nativeLanguageLabel?: string) {
   const [open, setOpen] = useState(false)
   const [lookup, setLookup] = useState<TagLookupState>({ status: 'idle' })
-  const mounted = useRef(true)
-
-  useEffect(() => {
-    mounted.current = true
-    return () => { mounted.current = false }
-  }, [])
 
   const loadNames = () => {
     setOpen(true)
@@ -473,12 +467,8 @@ function useTagTooltip(tag: Tag, nativeLanguageLabel?: string) {
     }
     setLookup({ status: 'loading' })
     fetchTagNameInfo(tag.qid, nativeLanguageLabel)
-      .then((info) => {
-        if (mounted.current) setLookup({ status: 'ready', info })
-      })
-      .catch(() => {
-        if (mounted.current) setLookup({ status: 'error' })
-      })
+      .then((info) => setLookup({ status: 'ready', info }))
+      .catch(() => setLookup({ status: 'error' }))
   }
 
   return { open, lookup, loadNames, close: () => setOpen(false) }
@@ -924,6 +914,7 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [sortByCount, setSortByCount] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = filters[filterKey]
   const normalizedSearch = search.trim().toLocaleLowerCase()
@@ -931,8 +922,10 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
     .filter((option) => !normalizedSearch || option.label.toLocaleLowerCase().includes(normalizedSearch))
     .sort((left, right) => {
       const selectionOrder = Number(selected.includes(right.value)) - Number(selected.includes(left.value))
-      return selectionOrder || left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
-    }), [normalizedSearch, options, selected])
+      if (selectionOrder) return selectionOrder
+      const countOrder = sortByCount ? right.count - left.count : 0
+      return countOrder || left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
+    }), [normalizedSearch, options, selected, sortByCount])
 
   const close = () => {
     setOpen(false)
@@ -980,11 +973,21 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
         <div className="tag-filter-menu">
           <div className="tag-filter-menu-heading">
             <strong>{label}</strong>
-            {selected.length > 0 && (
-              <button type="button" className="tag-filter-clear" onClick={() => onChange({ [filterKey]: [] })}>
-                <X size={14} aria-hidden="true" /> Clear
+            <span className="tag-filter-menu-actions">
+              <button
+                type="button"
+                className="tag-filter-sort"
+                aria-pressed={sortByCount}
+                onClick={() => setSortByCount((current) => !current)}
+              >
+                Sort by count
               </button>
-            )}
+              {selected.length > 0 && (
+                <button type="button" className="tag-filter-clear" onClick={() => onChange({ [filterKey]: [] })}>
+                  <X size={14} aria-hidden="true" /> Clear
+                </button>
+              )}
+            </span>
           </div>
           <label className="tag-filter-search">
             <span className="visually-hidden">Search {label} tags</span>
@@ -1005,7 +1008,10 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
                     checked={selected.includes(option.value)}
                     onChange={() => toggle(option.value)}
                   />
-                  <span>{option.label}</span>
+                  <span className="tag-filter-option-label">
+                    <span>{option.label}</span>
+                    <span className="tag-filter-total">({option.count.toLocaleString()})</span>
+                  </span>
                 </label>
                 <TagHelp tag={{ label: option.label, qid: option.qid }} />
               </div>
@@ -1035,12 +1041,24 @@ function TagFilterDropdown({ filters, stats, onChange }: {
 
 function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote, localMatchesLatest }: ExploreProps) {
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
+  const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const [mapFocusRequest, setMapFocusRequest] = useState<MapFocusRequest | null>(null)
   const mapFocusRequestId = useRef(0)
+  const appliedQuery = useRef('')
 
   useEffect(() => { document.title = 'Heritage Atlas' }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (appliedQuery.current === searchInput) return
+      appliedQuery.current = searchInput
+      setFilters((current) => ({ ...current, query: searchInput }))
+      setPage(0)
+    }, 220)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const mapPlaces = useMemo(() => bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds])
@@ -1085,7 +1103,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       </header>
 
       <section className="controls" aria-label="Place filters">
-        <label>Search<input value={filters.query} onChange={(event) => updateFilters({ query: event.target.value })} placeholder="Name, country, style, designation…" /></label>
+        <label>Search<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Name, country, style, designation…" /></label>
         <TagFilterDropdown filters={filters} stats={stats} onChange={updateFilters} />
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>

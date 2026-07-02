@@ -64,6 +64,7 @@ export type TagFilterOption = {
   label: string
   qid?: string
   value: string
+  count: number
 }
 
 export type PlaceSearchPage = {

@@ -43,17 +43,27 @@ function splitList(value: SqlValue | undefined): string[] {
   return asString(value).split(/\s*\|\s*|\u001f/g).map((item) => item.trim()).filter(Boolean)
 }
 
+function parseTag(value: string): Omit<TagFilterOption, 'count'> | undefined {
+  const match = value.match(/^(.*?)\s*\[\s*(Q\d+)\s*\]\s*$/i)
+  const qid = match?.[2]?.toUpperCase()
+  const label = (match?.[1] || value).trim()
+  if (!label) return undefined
+  return { label, qid, value: qid || label }
+}
+
 function tagFilterOptions(rows: Row[], column: string): TagFilterOption[] {
   const options = new Map<string, TagFilterOption>()
   for (const row of rows) {
+    const placeTags = new Set<string>()
     for (const value of splitList(row[column])) {
-      const match = value.match(/^(.*?)\s*\[\s*(Q\d+)\s*\]\s*$/i)
-      const qid = match?.[2]?.toUpperCase()
-      const label = (match?.[1] || value).trim()
-      if (!label) continue
-      const filterValue = qid || label
-      const key = filterValue.toLocaleLowerCase()
-      if (!options.has(key)) options.set(key, { label, qid, value: filterValue })
+      const tag = parseTag(value)
+      if (!tag) continue
+      const key = tag.value.toLocaleLowerCase()
+      if (placeTags.has(key)) continue
+      placeTags.add(key)
+      const existing = options.get(key)
+      if (existing) existing.count += 1
+      else options.set(key, { ...tag, count: 1 })
     }
   }
   return [...options.values()].sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }))
@@ -131,38 +141,28 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
 
   if (query) {
     const like = `%${escapeLike(query.toLocaleLowerCase())}%`
-    where.push(`(
-      lower(COALESCE(p.label_native, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.label_en, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.label_zh, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.country_label_en, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.native_language_label_en, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.heritage_designation_labels_native, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.instance_of, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.architectural_style_label_en, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(p.inception_values, '')) LIKE ? ESCAPE '\\'
+    where.push(`p.wikidata_qid IN (
+      SELECT place_qid FROM atlas_search_index
+      WHERE search_text LIKE ? ESCAPE '\\'
     )`)
-    params.push(like, like, like, like, like, like, like, like, like)
+    params.push(like)
   }
 
   if (filters.country) {
     where.push('p.country_label_en = ?')
     params.push(filters.country)
   }
-  const addTagFilters = (column: string, values: string[]) => {
+  const addTagFilters = (category: string, values: string[]) => {
     if (!values.length) return
-    const normalizedColumn = `replace(replace(replace(replace(lower(trim(COALESCE(${column}, ''))), ' | ', char(31)), '| ', char(31)), ' |', char(31)), '|', char(31))`
-    where.push(`(${values.map((value) => {
-      if (/^Q\d+$/i.test(value)) {
-        params.push(`%[${escapeLike(value.toLocaleLowerCase())}]%`)
-        return `lower(COALESCE(${column}, '')) LIKE ? ESCAPE '\\'`
-      }
-      params.push(value.toLocaleLowerCase())
-      return `instr(char(31) || ${normalizedColumn} || char(31), char(31) || ? || char(31)) > 0`
-    }).join(' OR ')})`)
+    where.push(`p.wikidata_qid IN (
+      SELECT place_qid FROM atlas_tag_index
+      WHERE category = ?
+        AND value IN (${values.map(() => '?').join(', ')})
+    )`)
+    params.push(category, ...values.map((value) => value.toLocaleLowerCase()))
   }
-  addTagFilters('p.instance_of', filters.instanceOf)
-  addTagFilters('p.architectural_style_label_en', filters.architecturalStyles)
+  addTagFilters('instance', filters.instanceOf)
+  addTagFilters('style', filters.architecturalStyles)
   if (bounds) {
     where.push('p.latitude IS NOT NULL AND p.longitude IS NOT NULL')
     where.push('p.latitude BETWEEN ? AND ?')
@@ -193,7 +193,81 @@ export class IncompatibleAtlasError extends Error {
 }
 
 export class AtlasDatabase {
+  private runtimeIndexesReady = false
+
   private constructor(private readonly database: SqlDatabase) {}
+
+  private ensureRuntimeIndexes(providedTagRows?: Row[]): Row[] {
+    if (this.runtimeIndexesReady) return providedTagRows || []
+
+    const tagRows = providedTagRows || firstResult(
+      this.database,
+      'SELECT wikidata_qid AS qid, instance_of, architectural_style_label_en FROM places',
+    )
+
+    this.database.exec(`
+      CREATE TEMP TABLE IF NOT EXISTS atlas_search_index (
+        place_qid TEXT PRIMARY KEY,
+        search_text TEXT NOT NULL
+      ) WITHOUT ROWID;
+      DELETE FROM atlas_search_index;
+      INSERT INTO atlas_search_index (place_qid, search_text)
+      SELECT wikidata_qid,
+             lower(
+               COALESCE(label_native, '') || char(31) ||
+               COALESCE(label_en, '') || char(31) ||
+               COALESCE(label_zh, '') || char(31) ||
+               COALESCE(country_label_en, '') || char(31) ||
+               COALESCE(native_language_label_en, '') || char(31) ||
+               COALESCE(heritage_designation_labels_native, '') || char(31) ||
+               COALESCE(instance_of, '') || char(31) ||
+               COALESCE(architectural_style_label_en, '') || char(31) ||
+               COALESCE(inception_values, '')
+             )
+      FROM places;
+
+      CREATE TEMP TABLE IF NOT EXISTS atlas_tag_index (
+        category TEXT NOT NULL,
+        value TEXT NOT NULL,
+        place_qid TEXT NOT NULL,
+        PRIMARY KEY (category, value, place_qid)
+      ) WITHOUT ROWID;
+      DELETE FROM atlas_tag_index;
+
+      WITH RECURSIVE
+      source(place_qid, category, rest) AS (
+        SELECT wikidata_qid, 'instance', replace(COALESCE(instance_of, ''), '|', char(31)) || char(31)
+        FROM places
+        UNION ALL
+        SELECT wikidata_qid, 'style', replace(COALESCE(architectural_style_label_en, ''), '|', char(31)) || char(31)
+        FROM places
+      ),
+      split(place_qid, category, tag, rest) AS (
+        SELECT place_qid, category, '', rest FROM source
+        UNION ALL
+        SELECT place_qid,
+               category,
+               trim(substr(rest, 1, instr(rest, char(31)) - 1)),
+               substr(rest, instr(rest, char(31)) + 1)
+        FROM split
+        WHERE rest <> ''
+      )
+      INSERT OR IGNORE INTO atlas_tag_index (category, value, place_qid)
+      SELECT category,
+             lower(CASE
+               WHEN upper(tag) GLOB '*[[]Q[0-9]*[]]'
+               THEN substr(tag, instr(upper(tag), '[Q') + 1, instr(substr(tag, instr(upper(tag), '[Q') + 1), ']') - 1)
+               ELSE tag
+             END),
+             place_qid
+      FROM split
+      WHERE tag <> '';
+
+      ANALYZE atlas_tag_index;
+    `)
+    this.runtimeIndexesReady = true
+    return tagRows
+  }
 
   static async open(bytes: Uint8Array): Promise<AtlasDatabase> {
     const SQL = await loadSqlJs()
@@ -219,19 +293,26 @@ export class AtlasDatabase {
   getStats(): AtlasStats {
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
     const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
-    const instanceRows = firstResult(this.database, "SELECT DISTINCT instance_of FROM places WHERE instance_of <> '' AND instance_of IS NOT NULL")
-    const styleRows = firstResult(this.database, "SELECT DISTINCT architectural_style_label_en FROM places WHERE architectural_style_label_en <> '' AND architectural_style_label_en IS NOT NULL")
+    const tagRows = firstResult(this.database, 'SELECT wikidata_qid AS qid, instance_of, architectural_style_label_en FROM places')
+    this.ensureRuntimeIndexes(tagRows)
     return {
       placeCount: asNumber(count?.count),
       countries,
-      instanceOf: tagFilterOptions(instanceRows, 'instance_of'),
-      architecturalStyles: tagFilterOptions(styleRows, 'architectural_style_label_en'),
+      instanceOf: tagFilterOptions(tagRows, 'instance_of'),
+      architecturalStyles: tagFilterOptions(tagRows, 'architectural_style_label_en'),
     }
   }
 
   search(filters: PlaceFilters, page: number, pageSize: number): PlaceSearchPage {
+    this.ensureRuntimeIndexes()
     const where = filtersToWhere(filters)
-    const countRow = firstResult(this.database, `SELECT COUNT(*) AS count FROM places p ${where.sql}`, where.params)[0]
+    const combinesCountWithRows = Boolean(filters.query.trim())
+    const select = combinesCountWithRows
+      ? FULL_SELECT.replace('SELECT', 'SELECT COUNT(*) OVER() AS filtered_count,')
+      : FULL_SELECT
+    const countRow = combinesCountWithRows
+      ? undefined
+      : firstResult(this.database, `SELECT COUNT(*) AS count FROM places p ${where.sql}`, where.params)[0]
     const order = filters.sort === 'name'
       ? "COALESCE(NULLIF(p.label_native, ''), NULLIF(p.label_en, ''), p.wikidata_qid) COLLATE NOCASE ASC"
       : filters.sort === 'sitelinks'
@@ -240,10 +321,11 @@ export class AtlasDatabase {
     const offset = Math.max(0, page) * pageSize
     const rows = firstResult(
       this.database,
-      `${FULL_SELECT} ${where.sql} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      `${select} ${where.sql} ORDER BY ${order} LIMIT ? OFFSET ?`,
       [...where.params, pageSize, offset],
     )
-    return { total: asNumber(countRow?.count), items: rows.map(toPlace) }
+    const total = combinesCountWithRows ? asNumber(rows[0]?.filtered_count) : asNumber(countRow?.count)
+    return { total, items: rows.map(toPlace) }
   }
 
   getPlace(qid: string): Place | undefined {
@@ -252,6 +334,7 @@ export class AtlasDatabase {
   }
 
   getMapPlaces(filters: PlaceFilters, bounds: MapBounds): Place[] {
+    this.ensureRuntimeIndexes()
     const mapOrderColumn = filters.sort === 'sitelinks' ? 'wikipedia_sitelinks_count' : 'wiki_view_count'
 
     if (bounds.zoom < INDIVIDUAL_MARKER_ZOOM) {
