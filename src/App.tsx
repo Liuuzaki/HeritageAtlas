@@ -74,27 +74,18 @@ type CommonsImagePage = {
 }
 type CommonsLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type TagNameInfo = {
-  qid?: string
+  qid: string
   nativeName?: string
   nativeLanguageName?: string
   chineseName?: string
-  wikidataUrl?: string
+  wikidataUrl: string
 }
+type Tag = { label: string; qid?: string }
 type TagLookupState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'ready'; info: TagNameInfo }
   | { status: 'error' }
-type WikidataSearchResult = {
-  id?: string
-  label?: string
-  match?: {
-    text?: string
-  }
-}
-type WikidataSearchResponse = {
-  search?: WikidataSearchResult[]
-}
 type WikidataEntity = {
   id?: string
   labels?: Record<string, { value?: string }>
@@ -274,27 +265,13 @@ function wikidataLanguageCode(languageLabel: string | undefined): string | undef
   return normalized ? WIKIDATA_LANGUAGE_CODES[normalized] : undefined
 }
 
-async function fetchTagNameInfo(tag: string, nativeLanguageLabel: string | undefined): Promise<TagNameInfo> {
+async function fetchTagNameInfo(qid: string, nativeLanguageLabel: string | undefined): Promise<TagNameInfo> {
   const nativeLanguageCode = wikidataLanguageCode(nativeLanguageLabel)
-  const cacheKey = `${nativeLanguageCode || ''}\u0000${tag}`
+  const cacheKey = `${nativeLanguageCode || ''}\u0000${qid}`
   const cached = tagLookupCache.get(cacheKey)
   if (cached) return cached
 
   const lookup = (async () => {
-    const searchResponse = await fetch(wikidataApiUrl({
-      action: 'wbsearchentities',
-      language: 'en',
-      uselang: 'en',
-      type: 'item',
-      limit: '1',
-      search: tag,
-    }))
-    if (!searchResponse.ok) throw new Error(`Wikidata returned ${searchResponse.status}`)
-    const searchData = await searchResponse.json() as WikidataSearchResponse
-    const match = searchData.search?.find((result) => result.id)
-    const qid = match?.id
-    if (!qid) return {}
-
     const entityResponse = await fetch(wikidataApiUrl({
       action: 'wbgetentities',
       ids: qid,
@@ -376,7 +353,7 @@ function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilte
         </button>
         {flags.length > 0 && (
           <span className="card-country-flags">
-            {flags.map((flag) => <img key={flag.code} src={`https://flagcdn.com/${flag.code.toLowerCase()}.svg`} alt={`Flag of ${flag.name}`} title={flag.name} width="24" height="18" loading="lazy" referrerPolicy="no-referrer" />)}
+            {flags.map((flag) => <img key={flag.code} src={`https://flagcdn.com/${flag.code.toLowerCase()}.svg`} alt={`Flag of ${flag.name}`} title={flag.name} width="32" height="24" loading="lazy" referrerPolicy="no-referrer" />)}
           </span>
         )}
       </div>
@@ -390,6 +367,25 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 
 function TextList({ values }: { values: string[] }) {
   return values.length ? <ul>{values.map((value) => <li key={value}>{value}</li>)}</ul> : <>Not recorded</>
+}
+
+function tagsFromValues(...valueGroups: string[][]): Tag[] {
+  const tags: Tag[] = []
+  const seen = new Set<string>()
+
+  for (const value of valueGroups.flat()) {
+    const match = value.match(/^(.*?)\s*\[\s*(Q\d+)\s*\]\s*$/i)
+    const qid = match?.[2]?.toUpperCase()
+    const label = (match?.[1] || value).trim()
+    if (!label) continue
+
+    const key = qid || label.toLocaleLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    tags.push({ label, qid })
+  }
+
+  return tags
 }
 
 function DesignationText({ values, limit, className }: { values: string[]; limit?: number; className?: string }) {
@@ -423,7 +419,6 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
       <dl className="summary-facts">
         <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
         <DetailRow label="Heritage designation"><DesignationText values={place.designations} /></DetailRow>
-        <DetailRow label="Architectural style"><TextList values={place.styles} /></DetailRow>
         <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
         <DetailRow label="Map coordinates">{hasCoordinates ? <a href={googleMapsUrl} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
       </dl>
@@ -434,23 +429,21 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
   )
 }
 
-function TagsSection({ tags, nativeLanguageLabel }: { tags: string[]; nativeLanguageLabel?: string }) {
+function TagsSection({ values, nativeLanguageLabel }: { values: string[][]; nativeLanguageLabel?: string }) {
+  const tags = tagsFromValues(...values)
   return (
     <section className="record-section tags-section" aria-labelledby="place-tags-title">
       <div className="section-heading">
-        <div>
-          <p className="eyebrow">Tags</p>
-          <h2 id="place-tags-title">Instance of</h2>
-        </div>
+        <h2 id="place-tags-title">Tags</h2>
       </div>
       {tags.length
-        ? <ul className="tag-list">{tags.map((tag) => <TagItem key={tag} tag={tag} nativeLanguageLabel={nativeLanguageLabel} />)}</ul>
+        ? <ul className="tag-list">{tags.map((tag) => <TagItem key={tag.qid || tag.label} tag={tag} nativeLanguageLabel={nativeLanguageLabel} />)}</ul>
         : <p className="section-empty">No tags are recorded for this place.</p>}
     </section>
   )
 }
 
-function TagItem({ tag, nativeLanguageLabel }: { tag: string; nativeLanguageLabel?: string }) {
+function TagItem({ tag, nativeLanguageLabel }: { tag: Tag; nativeLanguageLabel?: string }) {
   const [open, setOpen] = useState(false)
   const [lookup, setLookup] = useState<TagLookupState>({ status: 'idle' })
   const mounted = useRef(true)
@@ -463,8 +456,12 @@ function TagItem({ tag, nativeLanguageLabel }: { tag: string; nativeLanguageLabe
   const loadNames = () => {
     setOpen(true)
     if (lookup.status === 'loading' || lookup.status === 'ready') return
+    if (!tag.qid) {
+      setLookup({ status: 'error' })
+      return
+    }
     setLookup({ status: 'loading' })
-    fetchTagNameInfo(tag, nativeLanguageLabel)
+    fetchTagNameInfo(tag.qid, nativeLanguageLabel)
       .then((info) => {
         if (mounted.current) setLookup({ status: 'ready', info })
       })
@@ -475,18 +472,18 @@ function TagItem({ tag, nativeLanguageLabel }: { tag: string; nativeLanguageLabe
 
   return (
     <li className="tag-item" tabIndex={0} onMouseEnter={loadNames} onMouseLeave={() => setOpen(false)} onFocus={loadNames} onBlur={() => setOpen(false)}>
-      <span>{tag}</span>
+      <span>{tag.label}</span>
       {open && <TagTooltip tag={tag} lookup={lookup} />}
     </li>
   )
 }
 
-function TagTooltip({ tag, lookup }: { tag: string; lookup: TagLookupState }) {
+function TagTooltip({ tag, lookup }: { tag: Tag; lookup: TagLookupState }) {
   if (lookup.status === 'idle' || lookup.status === 'loading') {
     return <span className="tag-tooltip" role="tooltip">Loading Wikidata names...</span>
   }
   if (lookup.status === 'error') {
-    return <span className="tag-tooltip" role="tooltip">Wikidata names unavailable.</span>
+    return <span className="tag-tooltip" role="tooltip">{tag.qid ? 'Wikidata names unavailable.' : 'Wikidata QID not recorded.'}</span>
   }
 
   const { info } = lookup
@@ -494,9 +491,7 @@ function TagTooltip({ tag, lookup }: { tag: string; lookup: TagLookupState }) {
     <span className="tag-tooltip" role="tooltip">
       <span><strong>{info.nativeLanguageName ? `${info.nativeLanguageName} name` : 'Native name'}</strong>{info.nativeName || 'Not recorded'}</span>
       <span><strong>Chinese name</strong>{info.chineseName || 'Not recorded'}</span>
-      {info.wikidataUrl
-        ? <a href={info.wikidataUrl} target="_blank" rel="noreferrer">Wikidata {info.qid}</a>
-        : <span>Wikidata match not found for {tag}.</span>}
+      <a href={info.wikidataUrl} target="_blank" rel="noreferrer">Wikidata {info.qid}</a>
     </span>
   )
 }
@@ -869,7 +864,7 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
               <RecordSummary place={place} coordinateText={coordinateText} hasCoordinates={hasCoordinates} />
             </div>
           </section>
-          <TagsSection tags={place.instanceOf} nativeLanguageLabel={place.nativeLanguageLabelEn} />
+          <TagsSection values={[place.instanceOf, place.styles]} nativeLanguageLabel={place.nativeLanguageLabelEn} />
           <WikipediaContentSection place={place} />
           <CommonsImagesSection place={place} />
         </article>

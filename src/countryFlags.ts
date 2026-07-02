@@ -13,32 +13,10 @@ const normalizeCountryName = (value: string) => value
   .replace(/^the /, '')
 
 const COUNTRY_ALIASES: Record<string, string> = {
-  'bolivia': 'BO',
-  'brunei': 'BN',
-  'cape verde': 'CV',
-  'czech republic': 'CZ',
-  'democratic republic of congo': 'CD',
-  'democratic republic of the congo': 'CD',
-  'east timor': 'TL',
-  'federated states of micronesia': 'FM',
-  'holy see': 'VA',
-  'iran': 'IR',
-  'ivory coast': 'CI',
-  'laos': 'LA',
-  'moldova': 'MD',
-  'north korea': 'KP',
-  'palestine': 'PS',
-  'republic of congo': 'CG',
-  'republic of the congo': 'CG',
-  'russia': 'RU',
-  'south korea': 'KR',
-  'syria': 'SY',
-  'taiwan': 'TW',
-  'tanzania': 'TZ',
+  'france': 'FR',
+  'united kingdom': 'GB',
   'united states of america': 'US',
-  'vatican city': 'VA',
-  'venezuela': 'VE',
-  'vietnam': 'VN',
+  'united states': 'US',
 }
 
 function buildCountryCodes() {

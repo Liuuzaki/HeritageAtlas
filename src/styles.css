@@ -378,8 +378,8 @@ h1 {
 
 .card-country-flags img {
   display: block;
-  width: 24px;
-  height: 18px;
+  width: 32px;
+  height: 24px;
   border: 1px solid rgba(15, 23, 42, .14);
   border-radius: 2px;
   object-fit: cover;
@@ -459,17 +459,13 @@ h1 {
 .card-copy>strong {
   color: #18212f;
   font-size: 1rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .place-subheading {
   color: #526174;
   font-size: .78rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .badge {
@@ -801,6 +797,15 @@ footer {
   border-top: 1px solid #c7d2df;
   background: #fff;
   transform: rotate(45deg);
+}
+
+.tag-tooltip::after {
+  content: "";
+  position: absolute;
+  top: -12px;
+  left: 0;
+  width: 100%;
+  height: 12px;
 }
 
 .tag-tooltip span {
