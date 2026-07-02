@@ -204,6 +204,16 @@ export class AtlasDatabase {
       this.database,
       'SELECT wikidata_qid AS qid, instance_of, architectural_style_label_en FROM places',
     )
+    const persistentIndexes = new Set(
+      firstResult(
+        this.database,
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('atlas_search_index', 'atlas_tag_index')",
+      ).map((row) => asString(row.name)),
+    )
+    if (persistentIndexes.has('atlas_search_index') && persistentIndexes.has('atlas_tag_index')) {
+      this.runtimeIndexesReady = true
+      return tagRows
+    }
 
     this.database.exec(`
       CREATE TEMP TABLE IF NOT EXISTS atlas_search_index (

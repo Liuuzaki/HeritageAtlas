@@ -15,6 +15,7 @@ const normalizeCountryName = (value: string) => value
 const COUNTRY_ALIASES: Record<string, string> = {
   'france': 'FR',
   'united kingdom': 'GB',
+  'czech republic': 'CZ',
   'united states of america': 'US',
   'united states': 'US',
 }

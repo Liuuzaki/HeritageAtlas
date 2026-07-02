@@ -64,11 +64,41 @@ CREATE TABLE metadata (
 );
 """
 
+QUERY_INDEX_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS atlas_search_index (
+  place_qid TEXT PRIMARY KEY,
+  search_text TEXT NOT NULL,
+  FOREIGN KEY (place_qid) REFERENCES places(wikidata_qid) ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS atlas_tag_index (
+  category TEXT NOT NULL,
+  value TEXT NOT NULL,
+  place_qid TEXT NOT NULL,
+  PRIMARY KEY (category, value, place_qid),
+  FOREIGN KEY (place_qid) REFERENCES places(wikidata_qid) ON DELETE CASCADE
+) WITHOUT ROWID;
+"""
+
 INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_places_country ON places(country_label_en);
 CREATE INDEX IF NOT EXISTS idx_places_coordinates ON places(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_places_views ON places(wikiViewCount DESC, wikidata_qid);
 CREATE INDEX IF NOT EXISTS idx_places_native_label ON places(label_native COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_places_sitelinks ON places(
+  wikipedia_sitelinks_count DESC, label_native COLLATE NOCASE, wikidata_qid
+);
+CREATE INDEX IF NOT EXISTS idx_places_display_name ON places(
+  COALESCE(NULLIF(label_native, ''), NULLIF(label_en, ''), wikidata_qid) COLLATE NOCASE,
+  wikidata_qid
+);
+CREATE INDEX IF NOT EXISTS idx_places_country_sitelinks ON places(
+  country_label_en, wikipedia_sitelinks_count DESC, label_native COLLATE NOCASE, wikidata_qid
+);
+CREATE INDEX IF NOT EXISTS idx_places_country_views ON places(
+  country_label_en, wikiViewCount DESC, label_native COLLATE NOCASE, wikidata_qid
+);
+CREATE INDEX IF NOT EXISTS idx_atlas_tag_place ON atlas_tag_index(place_qid, category, value);
 """
 
 SOURCE_COLUMNS = {
@@ -113,6 +143,7 @@ class ImportOptions:
     mode: str = "merge"
     manifest_path: Path | None = None
     dataset_url: str | None = None
+    finalize: bool = True
 
 
 @dataclass(frozen=True)
@@ -143,7 +174,49 @@ def first(row: dict[str, str], *names: str) -> str:
 
 
 def split_values(value: str) -> list[str]:
-    return [part.strip() for part in re.split(r"\s*\|\s*", value) if part.strip()]
+    return [part.strip() for part in re.split(r"\s*\|\s*|\x1f", value) if part.strip()]
+
+
+_TAG_QID = re.compile(r"^(.*?)\s*\[\s*(Q\d+)\s*\]\s*$", re.IGNORECASE)
+_SEARCH_FIELDS = (
+    "label_native", "label_en", "label_zh", "country_label_en",
+    "native_language_label_en", "heritage_designation_labels_native",
+    "instance_of", "architectural_style_label_en", "inception_values",
+)
+
+
+def tag_filter_value(value: str) -> str:
+    match = _TAG_QID.match(value)
+    return (match.group(2) if match else value).strip().lower()
+
+
+def update_query_indexes(connection: sqlite3.Connection, place: dict[str, Any]) -> None:
+    qid = place["wikidata_qid"]
+    search_text = "\x1f".join(text(place.get(field)) for field in _SEARCH_FIELDS).lower()
+    connection.execute(
+        """
+        INSERT INTO atlas_search_index (place_qid, search_text) VALUES (?, ?)
+        ON CONFLICT(place_qid) DO UPDATE SET search_text=excluded.search_text
+        """,
+        (qid, search_text),
+    )
+    connection.execute("DELETE FROM atlas_tag_index WHERE place_qid = ?", (qid,))
+    tag_rows: list[tuple[str, str, str]] = []
+    for category, field in (
+        ("instance", "instance_of"),
+        ("style", "architectural_style_label_en"),
+    ):
+        seen: set[str] = set()
+        for raw_value in split_values(text(place.get(field))):
+            value = tag_filter_value(raw_value)
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            tag_rows.append((category, value, qid))
+    connection.executemany(
+        "INSERT OR IGNORE INTO atlas_tag_index (category, value, place_qid) VALUES (?, ?, ?)",
+        tag_rows,
+    )
 
 
 def first_value(value: str) -> str:
@@ -330,6 +403,7 @@ def insert_place(
             f"UPDATE places SET {assignments} WHERE wikidata_qid = ?",
             [*values, qid],
         )
+    update_query_indexes(connection, place)
 
 
 def validate_database(connection: sqlite3.Connection) -> None:
@@ -342,7 +416,73 @@ def validate_database(connection: sqlite3.Connection) -> None:
             raise ValueError(f"The database table {table} is missing columns: {', '.join(sorted(missing))}.")
 
 
+def ensure_query_index_tables(connection: sqlite3.Connection) -> bool:
+    existing = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)",
+            ("atlas_search_index", "atlas_tag_index"),
+        )
+    }
+    connection.executescript(QUERY_INDEX_TABLES_SQL)
+    return existing != {"atlas_search_index", "atlas_tag_index"}
+
+
+def rebuild_query_indexes(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        DELETE FROM atlas_search_index;
+        INSERT INTO atlas_search_index (place_qid, search_text)
+        SELECT wikidata_qid,
+               lower(
+                 COALESCE(label_native, '') || char(31) ||
+                 COALESCE(label_en, '') || char(31) ||
+                 COALESCE(label_zh, '') || char(31) ||
+                 COALESCE(country_label_en, '') || char(31) ||
+                 COALESCE(native_language_label_en, '') || char(31) ||
+                 COALESCE(heritage_designation_labels_native, '') || char(31) ||
+                 COALESCE(instance_of, '') || char(31) ||
+                 COALESCE(architectural_style_label_en, '') || char(31) ||
+                 COALESCE(inception_values, '')
+               )
+        FROM places;
+
+        DELETE FROM atlas_tag_index;
+        WITH RECURSIVE
+        source(place_qid, category, rest) AS (
+          SELECT wikidata_qid, 'instance', replace(COALESCE(instance_of, ''), '|', char(31)) || char(31)
+          FROM places
+          UNION ALL
+          SELECT wikidata_qid, 'style', replace(COALESCE(architectural_style_label_en, ''), '|', char(31)) || char(31)
+          FROM places
+        ),
+        split(place_qid, category, tag, rest) AS (
+          SELECT place_qid, category, '', rest FROM source
+          UNION ALL
+          SELECT place_qid,
+                 category,
+                 trim(substr(rest, 1, instr(rest, char(31)) - 1)),
+                 substr(rest, instr(rest, char(31)) + 1)
+          FROM split
+          WHERE rest <> ''
+        )
+        INSERT OR IGNORE INTO atlas_tag_index (category, value, place_qid)
+        SELECT category,
+               lower(CASE
+                 WHEN upper(tag) GLOB '*[[]Q[0-9]*[]]'
+                 THEN substr(tag, instr(upper(tag), '[Q') + 1,
+                             instr(substr(tag, instr(upper(tag), '[Q') + 1), ']') - 1)
+                 ELSE tag
+               END),
+               place_qid
+        FROM split
+        WHERE tag <> '';
+        """
+    )
+
+
 def create_indexes(connection: sqlite3.Connection) -> None:
+    ensure_query_index_tables(connection)
     for statement in INDEXES.split(";"):
         if statement.strip():
             connection.execute(statement)
@@ -359,6 +499,8 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
         if "instance_of" not in columns:
             connection.execute("ALTER TABLE places ADD COLUMN instance_of TEXT")
         validate_database(connection)
+        if ensure_query_index_tables(connection):
+            rebuild_query_indexes(connection)
         create_indexes(connection)
         return
     if not {"qid", "name", "latitude", "longitude"}.issubset(columns):
@@ -392,6 +534,8 @@ def migrate_legacy_database(connection: sqlite3.Connection) -> None:
         )
         connection.execute("DROP TABLE places")
         connection.execute("ALTER TABLE places_v2 RENAME TO places")
+        ensure_query_index_tables(connection)
+        rebuild_query_indexes(connection)
         create_indexes(connection)
         connection.commit()
     except BaseException:
@@ -445,7 +589,12 @@ def _import_database(
     input_rows = imported_rows = skipped_no_qid = missing_coordinates = 0
     with closing(sqlite3.connect(database_path)) as connection:
         if create_new:
-            connection.executescript(SCHEMA + PLACES_TABLE_SQL.format(table="places") + INDEXES)
+            connection.executescript(
+                SCHEMA
+                + PLACES_TABLE_SQL.format(table="places")
+                + QUERY_INDEX_TABLES_SQL
+                + INDEXES
+            )
         else:
             migrate_legacy_database(connection)
         previous_places = connection.execute("SELECT COUNT(*) FROM places").fetchone()[0]
@@ -491,6 +640,11 @@ def _import_database(
             raise
         if progress is not None:
             progress(input_rows)
+        create_indexes(connection)
+        connection.commit()
+        if options.finalize:
+            connection.execute("ANALYZE")
+            connection.commit()
         if create_new:
             connection.execute("VACUUM")
     return (
@@ -509,7 +663,7 @@ def import_csv(
     manifest_path = options.manifest_path.expanduser().resolve() if options.manifest_path else None
     options = ImportOptions(
         input_path, output_path, options.version.strip(), options.name.strip(),
-        options.mode, manifest_path, text(options.dataset_url),
+        options.mode, manifest_path, text(options.dataset_url), options.finalize,
     )
     if not input_path.is_file():
         raise ValueError(f"CSV file not found: {input_path}")

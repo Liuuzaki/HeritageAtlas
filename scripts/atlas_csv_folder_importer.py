@@ -173,6 +173,7 @@ def import_folder(
                     version=options.version,
                     name=options.name,
                     mode=child_mode,
+                    finalize=file_index == len(input_paths),
                 ),
                 progress=child_progress,
                 cancel=cancel,
