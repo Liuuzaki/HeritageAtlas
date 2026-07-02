@@ -90,6 +90,4 @@ export type AtlasStats = {
   countries: string[]
   instanceOf: TagFilterOption[]
   architecturalStyles: TagFilterOption[]
-  inceptionYearMin?: number
-  inceptionYearMax?: number
 }

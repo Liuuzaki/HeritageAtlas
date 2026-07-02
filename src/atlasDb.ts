@@ -222,6 +222,7 @@ export class IncompatibleAtlasError extends Error {
 export class AtlasDatabase {
   private runtimeIndexesReady = false
   private countryClusterCache: { key: string; places: Place[] } | null = null
+  private statsCache: AtlasStats | null = null
 
   private constructor(private readonly database: SqlDatabase) {}
 
@@ -329,21 +330,60 @@ export class AtlasDatabase {
   }
 
   getStats(): AtlasStats {
+    if (this.statsCache) return this.statsCache
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
-    const inceptionRange = firstResult(
-      this.database,
-      "SELECT MIN(CAST(inception_values AS INTEGER)) AS minimum, MAX(CAST(inception_values AS INTEGER)) AS maximum FROM places WHERE inception_values IS NOT NULL AND TRIM(inception_values) <> ''",
-    )[0]
     const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
     const tagRows = firstResult(this.database, 'SELECT wikidata_qid AS qid, instance_of, architectural_style_label_en FROM places')
     this.ensureRuntimeIndexes(tagRows)
-    return {
+    this.statsCache = {
       placeCount: asNumber(count?.count),
       countries,
       instanceOf: tagFilterOptions(tagRows, 'instance_of'),
       architecturalStyles: tagFilterOptions(tagRows, 'architectural_style_label_en'),
-      inceptionYearMin: asOptionalNumber(inceptionRange?.minimum),
-      inceptionYearMax: asOptionalNumber(inceptionRange?.maximum),
+    }
+    return this.statsCache
+  }
+
+  getTagFilterStats(filters: PlaceFilters): Pick<AtlasStats, 'instanceOf' | 'architecturalStyles'> {
+    this.ensureRuntimeIndexes()
+    const baseStats = this.getStats()
+    const optionsWithFilteredCounts = (
+      category: 'instance' | 'style',
+      options: TagFilterOption[],
+      categoryFilters: PlaceFilters,
+    ): TagFilterOption[] => {
+      const where = filtersToWhere(categoryFilters)
+      const rows = firstResult(
+        this.database,
+        `WITH matched AS (
+           SELECT p.wikidata_qid
+           FROM places p ${where.sql}
+         )
+         SELECT t.value, COUNT(*) AS count
+         FROM atlas_tag_index t
+         INNER JOIN matched m ON m.wikidata_qid = t.place_qid
+         WHERE t.category = ?
+         GROUP BY t.value`,
+        [...where.params, category],
+      )
+      const counts = new Map(rows.map((row) => [asString(row.value), asNumber(row.count)]))
+      return options.map((option) => ({
+        ...option,
+        count: counts.get(option.value.toLocaleLowerCase()) ?? 0,
+      }))
+    }
+
+    return {
+      instanceOf: optionsWithFilteredCounts(
+        'instance',
+        baseStats.instanceOf,
+        { ...filters, instanceOf: [] },
+      ),
+      architecturalStyles: optionsWithFilteredCounts(
+        'style',
+        baseStats.architecturalStyles,
+        { ...filters, architecturalStyles: [] },
+      ),
     }
   }
 

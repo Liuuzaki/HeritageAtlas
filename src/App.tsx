@@ -23,8 +23,8 @@ const EMPTY_FILTERS: PlaceFilters = {
   instanceOf: [],
   architecturalStyles: [],
   timespanEnabled: false,
-  timespanStart: -5000,
-  timespanEnd: new Date().getFullYear(),
+  timespanStart: null,
+  timespanEnd: null,
   sort: 'sitelinks',
 }
 const COMMONS_IMAGE_STEP = 8
@@ -926,7 +926,7 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [sortByCount, setSortByCount] = useState(false)
+  const [sortByCount, setSortByCount] = useState(true)
   const [scrollTop, setScrollTop] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const optionsRef = useRef<HTMLDivElement>(null)
@@ -1162,11 +1162,7 @@ function TimespanFilter({ filters, onChange }: {
 }
 
 function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote, localMatchesLatest }: ExploreProps) {
-  const [filters, setFilters] = useState<PlaceFilters>(() => ({
-    ...EMPTY_FILTERS,
-    timespanStart: stats.inceptionYearMin ?? EMPTY_FILTERS.timespanStart,
-    timespanEnd: stats.inceptionYearMax ?? EMPTY_FILTERS.timespanEnd,
-  }))
+  const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
   const [pageInput, setPageInput] = useState('1')
@@ -1189,6 +1185,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   }, [searchInput])
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
+  const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
   const mapPlaces = useMemo(() => bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds])
   const mapDataKey = JSON.stringify(filters)
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
@@ -1246,7 +1243,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
 
       <section className="controls" aria-label="Place filters">
         <label>Search<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Name, country, style, designation…" /></label>
-        <TagFilterDropdown filters={filters} stats={stats} onChange={updateFilters} />
+        <TagFilterDropdown filters={filters} stats={{ ...stats, ...tagFilterStats }} onChange={updateFilters} />
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
         <TimespanFilter filters={filters} onChange={updateFilters} />
