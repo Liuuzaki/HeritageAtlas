@@ -261,9 +261,17 @@ h1 {
 
 .tag-filter-options {
   max-height: min(58vh, 460px);
-  overflow-y: auto;
+  overflow: visible;
   padding-top: 2px;
   border-top: 1px solid #e3e8ee;
+}
+
+.tag-filter-options-scrollable {
+  overflow-y: auto;
+}
+
+.tag-filter-options-spacer {
+  position: relative;
 }
 
 .tag-filter-option {
@@ -279,7 +287,16 @@ h1 {
 
 .tag-filter-option:hover,
 .tag-filter-option:focus-within {
+  z-index: 2;
   background: #f1f6f8;
+}
+
+.tag-filter-option-virtual {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 34px;
 }
 
 .tag-filter-option > label {
@@ -360,6 +377,22 @@ h1 {
 .tag-filter-help .tag-tooltip::before {
   right: 9px;
   left: auto;
+}
+
+.tag-filter-help-above .tag-tooltip {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+.tag-filter-help-above .tag-tooltip::before {
+  top: auto;
+  bottom: -6px;
+  transform: rotate(225deg);
+}
+
+.tag-filter-help-above .tag-tooltip::after {
+  top: auto;
+  bottom: -12px;
 }
 
 .tag-filter-empty {

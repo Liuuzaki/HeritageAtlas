@@ -474,11 +474,11 @@ function useTagTooltip(tag: Tag, nativeLanguageLabel?: string) {
   return { open, lookup, loadNames, close: () => setOpen(false) }
 }
 
-function TagHelp({ tag }: { tag: Tag }) {
+function TagHelp({ tag, placement = 'below' }: { tag: Tag; placement?: 'above' | 'below' }) {
   const { open, lookup, loadNames, close } = useTagTooltip(tag)
   return (
     <span
-      className="tag-filter-help"
+      className={`tag-filter-help${placement === 'above' ? ' tag-filter-help-above' : ''}`}
       onMouseEnter={loadNames}
       onMouseLeave={close}
       onFocus={loadNames}
@@ -904,6 +904,9 @@ type ExploreProps = {
 }
 
 type TagFilterKey = 'instanceOf' | 'architecturalStyles'
+const TAG_FILTER_ROW_HEIGHT = 34
+const TAG_FILTER_MAX_HEIGHT = 460
+const TAG_FILTER_OVERSCAN = 4
 
 function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
   filterKey: TagFilterKey
@@ -915,21 +918,45 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [sortByCount, setSortByCount] = useState(false)
+  const [scrollTop, setScrollTop] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
+  const optionsRef = useRef<HTMLDivElement>(null)
   const selected = filters[filterKey]
+  const selectedSet = useMemo(() => new Set(selected), [selected])
   const normalizedSearch = search.trim().toLocaleLowerCase()
-  const visibleOptions = useMemo(() => options
-    .filter((option) => !normalizedSearch || option.label.toLocaleLowerCase().includes(normalizedSearch))
-    .sort((left, right) => {
-      const selectionOrder = Number(selected.includes(right.value)) - Number(selected.includes(left.value))
-      if (selectionOrder) return selectionOrder
-      const countOrder = sortByCount ? right.count - left.count : 0
-      return countOrder || left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
-    }), [normalizedSearch, options, selected, sortByCount])
+  const visibleOptions = useMemo(() => {
+    const selectedOptions: TagFilterOption[] = []
+    const unselectedOptions: TagFilterOption[] = []
+    for (const option of options) {
+      if (normalizedSearch && !option.label.toLocaleLowerCase().includes(normalizedSearch)) continue
+      if (selectedSet.has(option.value)) selectedOptions.push(option)
+      else unselectedOptions.push(option)
+    }
+    if (sortByCount) {
+      const byCount = (left: TagFilterOption, right: TagFilterOption) => right.count - left.count
+        || left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
+      selectedOptions.sort(byCount)
+      unselectedOptions.sort(byCount)
+    }
+    return [...selectedOptions, ...unselectedOptions]
+  }, [normalizedSearch, options, selectedSet, sortByCount])
+  const maxListHeight = Math.min(TAG_FILTER_MAX_HEIGHT, Math.max(170, Math.floor(window.innerHeight * .58)))
+  const totalListHeight = visibleOptions.length * TAG_FILTER_ROW_HEIGHT
+  const listHeight = Math.min(maxListHeight, totalListHeight)
+  const firstVisibleIndex = Math.floor(scrollTop / TAG_FILTER_ROW_HEIGHT)
+  const firstRenderedIndex = Math.max(0, firstVisibleIndex - TAG_FILTER_OVERSCAN)
+  const renderedCount = Math.ceil(listHeight / TAG_FILTER_ROW_HEIGHT) + TAG_FILTER_OVERSCAN * 2
+  const renderedOptions = visibleOptions.slice(firstRenderedIndex, firstRenderedIndex + renderedCount)
+
+  const resetListScroll = () => {
+    setScrollTop(0)
+    if (optionsRef.current) optionsRef.current.scrollTop = 0
+  }
 
   const close = () => {
     setOpen(false)
     setSearch('')
+    resetListScroll()
   }
 
   useEffect(() => {
@@ -954,6 +981,7 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
         ? selected.filter((item) => item !== value)
         : [...selected, value],
     })
+    resetListScroll()
   }
 
   return (
@@ -978,12 +1006,18 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
                 type="button"
                 className="tag-filter-sort"
                 aria-pressed={sortByCount}
-                onClick={() => setSortByCount((current) => !current)}
+                onClick={() => {
+                  setSortByCount((current) => !current)
+                  resetListScroll()
+                }}
               >
                 Sort by count
               </button>
               {selected.length > 0 && (
-                <button type="button" className="tag-filter-clear" onClick={() => onChange({ [filterKey]: [] })}>
+                <button type="button" className="tag-filter-clear" onClick={() => {
+                  onChange({ [filterKey]: [] })
+                  resetListScroll()
+                }}>
                   <X size={14} aria-hidden="true" /> Clear
                 </button>
               )}
@@ -994,28 +1028,48 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
             <input
               type="search"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                resetListScroll()
+              }}
               placeholder={`Search ${label.toLocaleLowerCase()}…`}
               autoFocus
             />
           </label>
-          <div className="tag-filter-options">
-            {visibleOptions.length ? visibleOptions.map((option) => (
-              <div className="tag-filter-option" key={option.value}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(option.value)}
-                    onChange={() => toggle(option.value)}
-                  />
-                  <span className="tag-filter-option-label">
-                    <span>{option.label}</span>
-                    <span className="tag-filter-total">({option.count.toLocaleString()})</span>
-                  </span>
-                </label>
-                <TagHelp tag={{ label: option.label, qid: option.qid }} />
+          <div
+            className={`tag-filter-options${totalListHeight > listHeight ? ' tag-filter-options-scrollable' : ''}`}
+            ref={optionsRef}
+            style={visibleOptions.length ? { height: listHeight } : undefined}
+            onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          >
+            {visibleOptions.length ? (
+              <div className="tag-filter-options-spacer" style={{ height: totalListHeight }}>
+                {renderedOptions.map((option, offset) => {
+                  const index = firstRenderedIndex + offset
+                  const tooltipAbove = index * TAG_FILTER_ROW_HEIGHT > scrollTop + listHeight / 2
+                  return (
+                    <div
+                      className="tag-filter-option tag-filter-option-virtual"
+                      key={option.value}
+                      style={{ transform: `translateY(${index * TAG_FILTER_ROW_HEIGHT}px)` }}
+                    >
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(option.value)}
+                          onChange={() => toggle(option.value)}
+                        />
+                        <span className="tag-filter-option-label">
+                          <span>{option.label}</span>
+                          <span className="tag-filter-total">({option.count.toLocaleString()})</span>
+                        </span>
+                      </label>
+                      <TagHelp tag={{ label: option.label, qid: option.qid }} placement={tooltipAbove ? 'above' : 'below'} />
+                    </div>
+                  )
+                })}
               </div>
-            )) : <p className="tag-filter-empty">{options.length ? 'No matching tags' : 'No tags recorded'}</p>}
+            ) : <p className="tag-filter-empty">{options.length ? 'No matching tags' : 'No tags recorded'}</p>}
           </div>
         </div>
       )}
