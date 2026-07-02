@@ -1,6 +1,6 @@
 import { loadSqlJs, type SqlDatabase, type SqlValue } from './sqlite'
 import { INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
-import type { AtlasStats, MapBounds, Place, PlaceFilters, PlaceSearchPage } from './types'
+import type { AtlasStats, MapBounds, Place, PlaceFilters, PlaceSearchPage, TagFilterOption } from './types'
 
 const DELIMITER = '\u001f'
 const MAP_AGGREGATE_CELL_SIZE_PX = 72
@@ -41,6 +41,22 @@ function asOptionalNumber(value: SqlValue | undefined): number | undefined {
 
 function splitList(value: SqlValue | undefined): string[] {
   return asString(value).split(/\s*\|\s*|\u001f/g).map((item) => item.trim()).filter(Boolean)
+}
+
+function tagFilterOptions(rows: Row[], column: string): TagFilterOption[] {
+  const options = new Map<string, TagFilterOption>()
+  for (const row of rows) {
+    for (const value of splitList(row[column])) {
+      const match = value.match(/^(.*?)\s*\[\s*(Q\d+)\s*\]\s*$/i)
+      const qid = match?.[2]?.toUpperCase()
+      const label = (match?.[1] || value).trim()
+      if (!label) continue
+      const filterValue = qid || label
+      const key = filterValue.toLocaleLowerCase()
+      if (!options.has(key)) options.set(key, { label, qid, value: filterValue })
+    }
+  }
+  return [...options.values()].sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }))
 }
 
 function displayName(row: Row): string {
@@ -112,7 +128,6 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
   const where: string[] = []
   const params: SqlValue[] = []
   const query = filters.query.trim()
-  const style = filters.style.trim()
 
   if (query) {
     const like = `%${escapeLike(query.toLocaleLowerCase())}%`
@@ -134,10 +149,20 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
     where.push('p.country_label_en = ?')
     params.push(filters.country)
   }
-  if (style) {
-    where.push(`lower(COALESCE(p.architectural_style_label_en, '')) LIKE ? ESCAPE '\\'`)
-    params.push(`%${escapeLike(style.toLocaleLowerCase())}%`)
+  const addTagFilters = (column: string, values: string[]) => {
+    if (!values.length) return
+    const normalizedColumn = `replace(replace(replace(replace(lower(trim(COALESCE(${column}, ''))), ' | ', char(31)), '| ', char(31)), ' |', char(31)), '|', char(31))`
+    where.push(`(${values.map((value) => {
+      if (/^Q\d+$/i.test(value)) {
+        params.push(`%[${escapeLike(value.toLocaleLowerCase())}]%`)
+        return `lower(COALESCE(${column}, '')) LIKE ? ESCAPE '\\'`
+      }
+      params.push(value.toLocaleLowerCase())
+      return `instr(char(31) || ${normalizedColumn} || char(31), char(31) || ? || char(31)) > 0`
+    }).join(' OR ')})`)
   }
+  addTagFilters('p.instance_of', filters.instanceOf)
+  addTagFilters('p.architectural_style_label_en', filters.architecturalStyles)
   if (bounds) {
     where.push('p.latitude IS NOT NULL AND p.longitude IS NOT NULL')
     where.push('p.latitude BETWEEN ? AND ?')
@@ -194,7 +219,14 @@ export class AtlasDatabase {
   getStats(): AtlasStats {
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
     const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
-    return { placeCount: asNumber(count?.count), countries }
+    const instanceRows = firstResult(this.database, "SELECT DISTINCT instance_of FROM places WHERE instance_of <> '' AND instance_of IS NOT NULL")
+    const styleRows = firstResult(this.database, "SELECT DISTINCT architectural_style_label_en FROM places WHERE architectural_style_label_en <> '' AND architectural_style_label_en IS NOT NULL")
+    return {
+      placeCount: asNumber(count?.count),
+      countries,
+      instanceOf: tagFilterOptions(instanceRows, 'instance_of'),
+      architecturalStyles: tagFilterOptions(styleRows, 'architectural_style_label_en'),
+    }
   }
 
   search(filters: PlaceFilters, page: number, pageSize: number): PlaceSearchPage {

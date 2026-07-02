@@ -55,8 +55,15 @@ export type StoredAtlas = {
 export type PlaceFilters = {
   query: string
   country: string
-  style: string
+  instanceOf: string[]
+  architecturalStyles: string[]
   sort: 'views' | 'sitelinks' | 'name'
+}
+
+export type TagFilterOption = {
+  label: string
+  qid?: string
+  value: string
 }
 
 export type PlaceSearchPage = {
@@ -77,4 +84,6 @@ export type MapBounds = {
 export type AtlasStats = {
   placeCount: number
   countries: string[]
+  instanceOf: TagFilterOption[]
+  architecturalStyles: TagFilterOption[]
 }

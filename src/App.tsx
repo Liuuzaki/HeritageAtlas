@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { LocateFixed } from 'lucide-react'
+import { ChevronDown, HelpCircle, LocateFixed, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatViews } from './data'
@@ -7,7 +7,7 @@ import { countryFlags } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
-import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata } from './types'
+import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata, TagFilterOption } from './types'
 
 type Route = { kind: 'home' } | { kind: 'place'; qid: string }
 type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifying' | 'installing'; received: number; total?: number }
@@ -16,8 +16,8 @@ type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 
 const PAGE_SIZE = 20
-const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [] }
-const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', style: '', sort: 'sitelinks' }
+const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], instanceOf: [], architecturalStyles: [] }
+const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', instanceOf: [], architecturalStyles: [], sort: 'sitelinks' }
 const COMMONS_IMAGE_STEP = 8
 
 type WikipediaLoadState = 'idle' | 'loading' | 'ready' | 'error'
@@ -444,6 +444,17 @@ function TagsSection({ values, nativeLanguageLabel }: { values: string[][]; nati
 }
 
 function TagItem({ tag, nativeLanguageLabel }: { tag: Tag; nativeLanguageLabel?: string }) {
+  const { open, lookup, loadNames, close } = useTagTooltip(tag, nativeLanguageLabel)
+
+  return (
+    <li className="tag-item" tabIndex={0} onMouseEnter={loadNames} onMouseLeave={close} onFocus={loadNames} onBlur={close}>
+      <span>{tag.label}</span>
+      {open && <TagTooltip tag={tag} lookup={lookup} />}
+    </li>
+  )
+}
+
+function useTagTooltip(tag: Tag, nativeLanguageLabel?: string) {
   const [open, setOpen] = useState(false)
   const [lookup, setLookup] = useState<TagLookupState>({ status: 'idle' })
   const mounted = useRef(true)
@@ -470,11 +481,26 @@ function TagItem({ tag, nativeLanguageLabel }: { tag: Tag; nativeLanguageLabel?:
       })
   }
 
+  return { open, lookup, loadNames, close: () => setOpen(false) }
+}
+
+function TagHelp({ tag }: { tag: Tag }) {
+  const { open, lookup, loadNames, close } = useTagTooltip(tag)
   return (
-    <li className="tag-item" tabIndex={0} onMouseEnter={loadNames} onMouseLeave={() => setOpen(false)} onFocus={loadNames} onBlur={() => setOpen(false)}>
-      <span>{tag.label}</span>
+    <span
+      className="tag-filter-help"
+      onMouseEnter={loadNames}
+      onMouseLeave={close}
+      onFocus={loadNames}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close()
+      }}
+    >
+      <button type="button" className="tag-help-button" aria-label={`About ${tag.label}`}>
+        <HelpCircle size={17} aria-hidden="true" />
+      </button>
       {open && <TagTooltip tag={tag} lookup={lookup} />}
-    </li>
+    </span>
   )
 }
 
@@ -887,6 +913,126 @@ type ExploreProps = {
   localMatchesLatest: boolean | null
 }
 
+type TagFilterKey = 'instanceOf' | 'architecturalStyles'
+
+function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
+  filterKey: TagFilterKey
+  label: string
+  options: TagFilterOption[]
+  filters: PlaceFilters
+  onChange: (patch: Partial<PlaceFilters>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = filters[filterKey]
+  const normalizedSearch = search.trim().toLocaleLowerCase()
+  const visibleOptions = useMemo(() => options
+    .filter((option) => !normalizedSearch || option.label.toLocaleLowerCase().includes(normalizedSearch))
+    .sort((left, right) => {
+      const selectionOrder = Number(selected.includes(right.value)) - Number(selected.includes(left.value))
+      return selectionOrder || left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
+    }), [normalizedSearch, options, selected])
+
+  const close = () => {
+    setOpen(false)
+    setSearch('')
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) close()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  const toggle = (value: string) => {
+    onChange({
+      [filterKey]: selected.includes(value)
+        ? selected.filter((item) => item !== value)
+        : [...selected, value],
+    })
+  }
+
+  return (
+    <div className="tag-category-dropdown" ref={rootRef}>
+      <button
+        type="button"
+        className="tag-filter-trigger"
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => open ? close() : setOpen(true)}
+      >
+        <span>{label}</span>
+        {selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}
+        <ChevronDown size={17} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="tag-filter-menu">
+          <div className="tag-filter-menu-heading">
+            <strong>{label}</strong>
+            {selected.length > 0 && (
+              <button type="button" className="tag-filter-clear" onClick={() => onChange({ [filterKey]: [] })}>
+                <X size={14} aria-hidden="true" /> Clear
+              </button>
+            )}
+          </div>
+          <label className="tag-filter-search">
+            <span className="visually-hidden">Search {label} tags</span>
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={`Search ${label.toLocaleLowerCase()}…`}
+              autoFocus
+            />
+          </label>
+          <div className="tag-filter-options">
+            {visibleOptions.length ? visibleOptions.map((option) => (
+              <div className="tag-filter-option" key={option.value}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(option.value)}
+                    onChange={() => toggle(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+                <TagHelp tag={{ label: option.label, qid: option.qid }} />
+              </div>
+            )) : <p className="tag-filter-empty">{options.length ? 'No matching tags' : 'No tags recorded'}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TagFilterDropdown({ filters, stats, onChange }: {
+  filters: PlaceFilters
+  stats: AtlasStats
+  onChange: (patch: Partial<PlaceFilters>) => void
+}) {
+  return (
+    <div className="filter-field tag-filter">
+      <span className="filter-label">Tags</span>
+      <div className="tag-filter-categories">
+        <TagCategoryDropdown filterKey="instanceOf" label="Instance of" options={stats.instanceOf} filters={filters} onChange={onChange} />
+        <TagCategoryDropdown filterKey="architecturalStyles" label="Architectural style" options={stats.architecturalStyles} filters={filters} onChange={onChange} />
+      </div>
+    </div>
+  )
+}
+
 function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote, localMatchesLatest }: ExploreProps) {
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [page, setPage] = useState(0)
@@ -940,7 +1086,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
 
       <section className="controls" aria-label="Place filters">
         <label>Search<input value={filters.query} onChange={(event) => updateFilters({ query: event.target.value })} placeholder="Name, country, style, designation…" /></label>
-        <label>Style keyword<input value={filters.style} onChange={(event) => updateFilters({ style: event.target.value })} placeholder="e.g. Baroque" /></label>
+        <TagFilterDropdown filters={filters} stats={stats} onChange={updateFilters} />
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
       </section>
