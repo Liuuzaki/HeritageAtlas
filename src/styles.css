@@ -639,6 +639,68 @@ h1 {
   box-shadow: 0 2px 8px rgba(15, 23, 42, .35);
 }
 
+.country-flag-cluster {
+  background: transparent;
+  overflow: visible !important;
+}
+
+.country-flag-cluster:hover,
+.country-flag-cluster:focus {
+  z-index: 100000 !important;
+}
+
+.country-flag-cluster > span {
+  position: relative;
+  display: block;
+  width: 56px;
+  height: 56px;
+  transform-origin: 50% 17px;
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.country-flag-cluster:hover > span,
+.country-flag-cluster:focus > span {
+  transform: translateY(-2px) scale(1.08);
+  filter: brightness(1.06) saturate(1.08);
+}
+
+.country-flag-cluster img {
+  display: block;
+  width: 44px !important;
+  height: 33px !important;
+  margin: 0 auto;
+  border: 2px solid rgba(255, 255, 255, .96);
+  border-radius: 6px;
+  object-fit: cover;
+  transition: box-shadow 140ms ease;
+  box-shadow: 0 2px 9px rgba(15, 23, 42, .4);
+}
+
+.country-flag-cluster:hover img,
+.country-flag-cluster:focus img {
+  box-shadow: 0 0 0 3px rgba(36, 105, 255, .38), 0 5px 14px rgba(15, 23, 42, .5);
+}
+
+.country-flag-cluster strong {
+  position: absolute;
+  top: 35px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 20px;
+  padding: 3px 5px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--cluster-color);
+  color: var(--cluster-text-color);
+  font-size: .61rem;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 1px 5px rgba(15, 23, 42, .35);
+}
+
 .place-list {
   min-height: 0;
   overflow: auto;

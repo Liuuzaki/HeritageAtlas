@@ -1,1 +1,2 @@
-export const INDIVIDUAL_MARKER_ZOOM = 9
+export const COUNTRY_CLUSTER_MAX_ZOOM = 5
+export const INDIVIDUAL_MARKER_ZOOM = 8

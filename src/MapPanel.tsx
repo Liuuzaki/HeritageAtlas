@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { countryFlags } from './countryFlags'
 import { formatViews } from './data'
 import { thumbnailImageUrl } from './images'
 import { INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
@@ -16,6 +17,9 @@ const VIEW_COUNT_COLORS = ['#27003e', '#7f13c3', '#2469ff', '#00a2ff', '#00fff2'
 const SITELINK_COUNT_MAX = 100
 const FOCUS_MARKER_ZOOM = 12
 const CLUSTER_ICON_SIZE = 32
+const COUNTRY_ICON_WIDTH = 56
+const COUNTRY_ICON_HEIGHT = 56
+const COUNTRY_FLAG_CENTER_Y = 17
 
 type ColorMetric = 'views' | 'sitelinks'
 type MetricConfig = {
@@ -118,6 +122,22 @@ function countMarkerIcon(pointCount: number, highestValue: number, config: Metri
     className: 'view-count-cluster',
     html: `<span style="--cluster-color: ${color}; --cluster-text-color: ${textColor}" title="${formattedCount} places; highest has ${config.format(highestValue)} ${config.noun}">${formattedCount}</span>`,
     iconSize: L.point(CLUSTER_ICON_SIZE, CLUSTER_ICON_SIZE),
+  })
+}
+
+function countryMarkerIcon(countryLabel: string, pointCount: number, highestValue: number, config: MetricConfig): L.DivIcon | undefined {
+  const flag = countryFlags(countryLabel)[0]
+  if (!flag) return undefined
+
+  const formattedCount = pointCount.toLocaleString()
+  const color = metricColor(highestValue, config.max)
+  const textColor = metricTextColor(highestValue, config.max)
+  const title = `${flag.name}: ${formattedCount} places`
+  return L.divIcon({
+    className: 'country-flag-cluster',
+    html: `<span style="--cluster-color: ${color}; --cluster-text-color: ${textColor}" title="${escapeHtml(title)}"><img src="https://flagcdn.com/${flag.code.toLowerCase()}.svg" alt="" loading="lazy" referrerpolicy="no-referrer"><strong>${formattedCount}</strong></span>`,
+    iconSize: L.point(COUNTRY_ICON_WIDTH, COUNTRY_ICON_HEIGHT),
+    iconAnchor: L.point(COUNTRY_ICON_WIDTH / 2, COUNTRY_FLAG_CENTER_Y),
   })
 }
 
@@ -312,9 +332,14 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
       const value = metricValue(place, colorMetric)
 
       if (place.mapAggregate) {
+        const icon = place.countryLabelEn
+          ? countryMarkerIcon(place.countryLabelEn, pointCount, value, config)
+          : undefined
         const marker = L.marker([place.latitude, place.longitude], {
-          icon: countMarkerIcon(pointCount, value, config),
+          icon: icon ?? countMarkerIcon(pointCount, value, config),
           zIndexOffset: metricZIndex(value, config.max),
+          riseOnHover: Boolean(icon),
+          riseOffset: 100_000,
         })
         marker.on('click', () => {
           const map = mapRef.current

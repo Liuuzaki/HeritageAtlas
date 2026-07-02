@@ -1,5 +1,5 @@
 import { loadSqlJs, type SqlDatabase, type SqlValue } from './sqlite'
-import { INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
+import { COUNTRY_CLUSTER_MAX_ZOOM, INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
 import type { AtlasStats, MapBounds, Place, PlaceFilters, PlaceSearchPage, TagFilterOption } from './types'
 
 const DELIMITER = '\u001f'
@@ -17,6 +17,15 @@ function snapDown(value: number, origin: number, cellSize: number): number {
 
 function snapUp(value: number, origin: number, cellSize: number): number {
   return origin + Math.ceil((value - origin) / cellSize) * cellSize
+}
+
+function countryClusterCacheKey(filters: PlaceFilters): string {
+  return JSON.stringify([
+    filters.query.trim(),
+    filters.country,
+    [...filters.instanceOf].sort(),
+    [...filters.architecturalStyles].sort(),
+  ])
 }
 
 function firstResult(database: SqlDatabase, sql: string, params: SqlValue[] = []): Row[] {
@@ -194,6 +203,7 @@ export class IncompatibleAtlasError extends Error {
 
 export class AtlasDatabase {
   private runtimeIndexesReady = false
+  private countryClusterCache: { key: string; places: Place[] } | null = null
 
   private constructor(private readonly database: SqlDatabase) {}
 
@@ -347,12 +357,46 @@ export class AtlasDatabase {
     this.ensureRuntimeIndexes()
     const mapOrderColumn = filters.sort === 'sitelinks' ? 'wikipedia_sitelinks_count' : 'wiki_view_count'
 
+    if (bounds.zoom <= COUNTRY_CLUSTER_MAX_ZOOM) {
+      // Country clusters represent every matching place in that country, so
+      // their count and centroid remain stable while the viewport pans. Cache
+      // the latest filtered result because bounds do not affect this tier.
+      const cacheKey = countryClusterCacheKey(filters)
+      if (this.countryClusterCache?.key === cacheKey) return this.countryClusterCache.places
+
+      const where = filtersToWhere(filters)
+      const rows = firstResult(
+        this.database,
+        `WITH matched AS (
+           SELECT p.country_label_en, p.latitude, p.longitude,
+                  p.wikiViewCount AS wiki_view_count,
+                  p.wikipedia_sitelinks_count
+           FROM places p ${where.sql}
+         )
+         SELECT 'map-country-' || country_label_en AS qid,
+                AVG(latitude) AS latitude, AVG(longitude) AS longitude,
+                MAX(wiki_view_count) AS wiki_view_count,
+                MAX(wikipedia_sitelinks_count) AS wikipedia_sitelinks_count,
+                COUNT(*) AS map_point_count,
+                1 AS is_map_aggregate,
+                '' AS label_native, country_label_en,
+                '' AS heritage_designation_labels_native,
+                '' AS instance_of, '' AS commons_image_urls, '' AS wikicommons_category
+         FROM matched
+         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+           AND country_label_en IS NOT NULL AND country_label_en <> ''
+         GROUP BY country_label_en
+         ORDER BY qid ASC`,
+        where.params,
+      )
+      const places = rows.map(toMapPlace)
+      this.countryClusterCache = { key: cacheKey, places }
+      return places
+    }
+
     if (bounds.zoom < INDIVIDUAL_MARKER_ZOOM) {
-      // Use one aggregation strategy below the shared threshold, even for
-      // small result sets, so isolated places cannot leak through as dots.
-      // Anchor buckets to a zoom-level world grid, then load complete cells.
-      // Their membership and centroid therefore stay fixed while the viewport
-      // pans; only a zoom change selects a different grid resolution.
+      // Medium zooms use fixed world-grid cells. Loading complete snapped
+      // cells keeps bucket membership and centroids stable while panning.
       const cellSize = Math.max(mapBucketCellSize(bounds.zoom), 0.000_001)
       const bucketBounds: MapBounds = {
         ...bounds,
