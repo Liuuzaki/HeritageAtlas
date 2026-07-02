@@ -13,7 +13,7 @@ const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 const VIEW_COUNT_MAX = 10_000_000
-const VIEW_COUNT_COLORS = ['#27003e', '#7f13c3', '#2469ff', '#00a2ff', '#00fff2'] as const
+const VIEW_COUNT_COLORS = ['#99a3af', '#874a99', '#613dff', '#00a2ff', '#00f7ff'] as const
 const SITELINK_COUNT_MAX = 100
 const FOCUS_MARKER_ZOOM = 12
 const CLUSTER_ICON_SIZE = 32
@@ -79,7 +79,7 @@ function escapeHtml(value: string): string {
 }
 
 function normalizedMetricValue(value: number, max: number): number {
-  return Math.min(1, Math.log10(Math.max(0, value) + 1) / Math.log10(max + 1))
+  return Math.min(1, Math.log10(Math.max(0, value)) / Math.log10(max))
 }
 
 function metricColor(value: number, max: number): string {

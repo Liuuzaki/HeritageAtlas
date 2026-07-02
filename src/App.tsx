@@ -1097,10 +1097,12 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
+  const [pageInput, setPageInput] = useState('1')
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const [mapFocusRequest, setMapFocusRequest] = useState<MapFocusRequest | null>(null)
   const mapFocusRequestId = useRef(0)
   const appliedQuery = useRef('')
+  const placeListRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => { document.title = 'Heritage Atlas' }, [])
 
@@ -1122,6 +1124,11 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const to = Math.min((page + 1) * PAGE_SIZE, result.total)
   const updateAvailable = Boolean(manifest && localMatchesLatest === false)
 
+  useEffect(() => {
+    setPageInput(String(page + 1))
+    if (placeListRef.current) placeListRef.current.scrollTop = 0
+  }, [page, pageCount])
+
   const updateFilters = (patch: Partial<PlaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))
     setPage(0)
@@ -1136,6 +1143,15 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       longitude: place.longitude,
       requestId: mapFocusRequestId.current,
     })
+  }
+
+  const applyPageJump = () => {
+    const requestedPage = Number.parseInt(pageInput, 10)
+    const nextPage = Number.isFinite(requestedPage)
+      ? Math.min(pageCount, Math.max(1, requestedPage))
+      : page + 1
+    setPageInput(String(nextPage))
+    setPage(nextPage - 1)
   }
 
   return (
@@ -1167,12 +1183,14 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
 
       <section className="atlas-layout">
         <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
-        <aside className="place-list" aria-label="Heritage place results">
-          {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}
-          {!result.items.length && <p className="notice">No places match these filters.</p>}
+        <aside className="place-list-panel" aria-label="Heritage place results">
+          <div ref={placeListRef} className="place-list">
+            {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}
+            {!result.items.length && <p className="notice">No places match these filters.</p>}
+          </div>
           {result.total > PAGE_SIZE && <nav className="pagination" aria-label="Results pagination">
             <button onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0}>← Previous</button>
-            <span>Page {page + 1} of {pageCount}</span>
+            <label className="page-status">Page <input type="number" min="1" max={pageCount} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageJump} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyPageJump() } }} aria-label="Current page" /> of {pageCount}</label>
             <button onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={page + 1 >= pageCount}>Next →</button>
           </nav>}
         </aside>

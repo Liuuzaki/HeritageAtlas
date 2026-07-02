@@ -420,6 +420,7 @@ h1 {
 }
 
 .atlas-layout {
+  --atlas-panel-height: 650px;
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(350px, .85fr);
   gap: 16px;
@@ -427,7 +428,8 @@ h1 {
 }
 
 .map {
-  min-height: 650px;
+  height: var(--atlas-panel-height);
+  min-height: var(--atlas-panel-height);
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid #dbe2ea;
@@ -701,10 +703,18 @@ h1 {
   box-shadow: 0 1px 5px rgba(15, 23, 42, .35);
 }
 
+.place-list-panel {
+  min-height: 0;
+  height: var(--atlas-panel-height);
+  max-height: var(--atlas-panel-height);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
 .place-list {
   min-height: 0;
   overflow: auto;
-  max-height: 650px;
   display: grid;
   align-content: start;
   gap: 10px;
@@ -1336,15 +1346,8 @@ footer {
 
 @media (max-width: 950px) {
   .atlas-layout {
+    --atlas-panel-height: clamp(440px, 70vh, 650px);
     grid-template-columns: 1fr;
-  }
-
-  .map {
-    min-height: 440px;
-  }
-
-  .place-list {
-    max-height: none;
   }
 
 }
@@ -1476,13 +1479,42 @@ footer {
 }
 
 .pagination {
-  display: flex;
-  justify-content: space-between;
+  position: sticky;
+  top: 24px;
+  bottom: 0px;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  padding: 10px 4px 2px;
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .96);
   color: #526174;
   font-size: .82rem;
+  backdrop-filter: blur(8px);
+}
+
+.page-status {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.page-status input {
+  width: 5rem;
+  padding: .42rem .35rem;
+  border: 1px solid #bcc8d6;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  color: #18212f;
+  background: #fff;
 }
 
 .installer-page {
@@ -1584,7 +1616,12 @@ footer {
   }
 
   .pagination {
-    flex-wrap: wrap;
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .pagination button {
+    padding-inline: .5rem;
   }
 }
 
