@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { ChevronDown, HelpCircle, LocateFixed, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
-import { formatBytes, formatViews } from './data'
+import { formatBytes, formatInception, formatViews } from './data'
 import { countryFlags } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
@@ -17,7 +17,16 @@ type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 
 const PAGE_SIZE = 20
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], instanceOf: [], architecturalStyles: [] }
-const EMPTY_FILTERS: PlaceFilters = { query: '', country: '', instanceOf: [], architecturalStyles: [], sort: 'sitelinks' }
+const EMPTY_FILTERS: PlaceFilters = {
+  query: '',
+  country: '',
+  instanceOf: [],
+  architecturalStyles: [],
+  timespanEnabled: false,
+  timespanStart: -5000,
+  timespanEnd: new Date().getFullYear(),
+  sort: 'sitelinks',
+}
 const COMMONS_IMAGE_STEP = 8
 
 type WikipediaLoadState = 'idle' | 'loading' | 'ready' | 'error'
@@ -365,8 +374,8 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   return <div className="detail-row"><dt>{label}</dt><dd>{children}</dd></div>
 }
 
-function TextList({ values }: { values: string[] }) {
-  return values.length ? <ul>{values.map((value) => <li key={value}>{value}</li>)}</ul> : <>Not recorded</>
+function TextList({ values, formatValue = (value) => value }: { values: string[]; formatValue?: (value: string) => string }) {
+  return values.length ? <ul>{values.map((value) => <li key={value}>{formatValue(value)}</li>)}</ul> : <>Not recorded</>
 }
 
 function tagsFromValues(...valueGroups: string[][]): Tag[] {
@@ -419,7 +428,7 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
       <dl className="summary-facts">
         <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
         <DetailRow label="Heritage designation"><DesignationText values={place.designations} /></DetailRow>
-        <DetailRow label="Inception"><TextList values={place.inceptionValues} /></DetailRow>
+        <DetailRow label="Inception"><TextList values={place.inceptionValues} formatValue={formatInception} /></DetailRow>
         <DetailRow label="Map coordinates">{hasCoordinates ? <a href={googleMapsUrl} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
       </dl>
       {links.length > 0 && <nav className="summary-links" aria-label="Record links">
@@ -1093,8 +1102,71 @@ function TagFilterDropdown({ filters, stats, onChange }: {
   )
 }
 
+function TimespanFilter({ filters, onChange }: {
+  filters: PlaceFilters
+  onChange: (patch: Partial<PlaceFilters>) => void
+}) {
+  const updateYear = (key: 'timespanStart' | 'timespanEnd', value: string) => {
+    if (value === '') {
+      onChange({ [key]: null })
+      return
+    }
+    const year = Number(value)
+    if (Number.isFinite(year)) onChange({ [key]: Math.trunc(year) })
+  }
+
+  return (
+    <div className={`filter-field timespan-filter${filters.timespanEnabled ? ' timespan-filter-enabled' : ''}`}>
+      <div className="timespan-heading">
+        <label>
+          <input
+            type="checkbox"
+            checked={filters.timespanEnabled}
+            onChange={(event) => onChange({ timespanEnabled: event.target.checked })}
+          />
+          Timespan
+        </label>
+        <span className="timespan-help">
+          <button type="button" aria-label="About the timespan filter" aria-describedby="timespan-help-tooltip">
+            <HelpCircle size={15} aria-hidden="true" />
+          </button>
+          <span id="timespan-help-tooltip" className="timespan-tooltip" role="tooltip">
+            <p>Use negative years for BC.</p>
+            <p>Disabled by default because only about one-third of places have inception data.</p>
+          </span>
+        </span>
+      </div>
+      <div className="timespan-inputs">
+        <input
+          type="number"
+          step="1"
+          value={filters.timespanStart ?? ''}
+          placeholder="From"
+          aria-label="Timespan from year"
+          disabled={!filters.timespanEnabled}
+          onChange={(event) => updateYear('timespanStart', event.target.value)}
+        />
+        <span aria-hidden="true">–</span>
+        <input
+          type="number"
+          step="1"
+          value={filters.timespanEnd ?? ''}
+          placeholder="To"
+          aria-label="Timespan until year"
+          disabled={!filters.timespanEnabled}
+          onChange={(event) => updateYear('timespanEnd', event.target.value)}
+        />
+      </div>
+    </div>
+  )
+}
+
 function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote, localMatchesLatest }: ExploreProps) {
-  const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
+  const [filters, setFilters] = useState<PlaceFilters>(() => ({
+    ...EMPTY_FILTERS,
+    timespanStart: stats.inceptionYearMin ?? EMPTY_FILTERS.timespanStart,
+    timespanEnd: stats.inceptionYearMax ?? EMPTY_FILTERS.timespanEnd,
+  }))
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
   const [pageInput, setPageInput] = useState('1')
@@ -1177,6 +1249,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         <TagFilterDropdown filters={filters} stats={stats} onChange={updateFilters} />
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
+        <TimespanFilter filters={filters} onChange={updateFilters} />
       </section>
 
       <p className="results-summary">{result.total.toLocaleString()} places match. Results {from.toLocaleString()}–{to.toLocaleString()} are loaded locally; the map uses country clusters at low zoom and area clusters at medium zoom.</p>

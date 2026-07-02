@@ -104,6 +104,115 @@ h1 {
   line-height: normal;
 }
 
+.timespan-filter {
+  min-width: 0;
+}
+
+.timespan-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.timespan-heading label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.timespan-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.timespan-help button {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #60768b;
+  cursor: help;
+}
+
+.timespan-help button:hover,
+.timespan-help button:focus-visible {
+  background: #dcebef;
+  color: #315b72;
+  outline: none;
+}
+
+.timespan-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  left: -8px;
+  visibility: hidden;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 48px));
+  padding: 8px 10px;
+  border: 1px solid #c7d2df;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .18);
+  color: #334155;
+  font-size: .72rem;
+  font-weight: 600;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease, visibility .12s ease;
+}
+
+.timespan-tooltip::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 12px;
+  width: 8px;
+  height: 8px;
+  border-top: 1px solid #c7d2df;
+  border-left: 1px solid #c7d2df;
+  background: #fff;
+  transform: rotate(45deg);
+}
+
+.timespan-help:hover .timespan-tooltip,
+.timespan-help:focus-within .timespan-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+.timespan-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.timespan-inputs input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #bcc8d6;
+  border-radius: 8px;
+  padding: .5rem .6rem;
+  color: #18212f;
+  background: #fff;
+}
+
+.timespan-inputs input:disabled {
+  color: #8491a3;
+  background: #f1f5f9;
+}
+
 .tag-filter {
   position: relative;
 }
@@ -1366,7 +1475,8 @@ footer {
   }
 
   .controls > label:first-child,
-  .controls > .tag-filter {
+  .controls > .tag-filter,
+  .controls > .timespan-filter {
     grid-column: 1 / -1;
   }
 

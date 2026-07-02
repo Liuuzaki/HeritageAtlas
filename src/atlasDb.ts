@@ -25,6 +25,9 @@ function countryClusterCacheKey(filters: PlaceFilters): string {
     filters.country,
     [...filters.instanceOf].sort(),
     [...filters.architecturalStyles].sort(),
+    filters.timespanEnabled,
+    filters.timespanStart,
+    filters.timespanEnd,
   ])
 }
 
@@ -172,6 +175,21 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
   }
   addTagFilters('instance', filters.instanceOf)
   addTagFilters('style', filters.architecturalStyles)
+  if (filters.timespanEnabled) {
+    where.push("p.inception_values IS NOT NULL AND TRIM(p.inception_values) <> ''")
+    if (filters.timespanStart !== null && filters.timespanEnd !== null) {
+      const start = Math.min(filters.timespanStart, filters.timespanEnd)
+      const end = Math.max(filters.timespanStart, filters.timespanEnd)
+      where.push('CAST(p.inception_values AS INTEGER) BETWEEN ? AND ?')
+      params.push(start, end)
+    } else if (filters.timespanStart !== null) {
+      where.push('CAST(p.inception_values AS INTEGER) >= ?')
+      params.push(filters.timespanStart)
+    } else if (filters.timespanEnd !== null) {
+      where.push('CAST(p.inception_values AS INTEGER) <= ?')
+      params.push(filters.timespanEnd)
+    }
+  }
   if (bounds) {
     where.push('p.latitude IS NOT NULL AND p.longitude IS NOT NULL')
     where.push('p.latitude BETWEEN ? AND ?')
@@ -312,6 +330,10 @@ export class AtlasDatabase {
 
   getStats(): AtlasStats {
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
+    const inceptionRange = firstResult(
+      this.database,
+      "SELECT MIN(CAST(inception_values AS INTEGER)) AS minimum, MAX(CAST(inception_values AS INTEGER)) AS maximum FROM places WHERE inception_values IS NOT NULL AND TRIM(inception_values) <> ''",
+    )[0]
     const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
     const tagRows = firstResult(this.database, 'SELECT wikidata_qid AS qid, instance_of, architectural_style_label_en FROM places')
     this.ensureRuntimeIndexes(tagRows)
@@ -320,6 +342,8 @@ export class AtlasDatabase {
       countries,
       instanceOf: tagFilterOptions(tagRows, 'instance_of'),
       architecturalStyles: tagFilterOptions(tagRows, 'architectural_style_label_en'),
+      inceptionYearMin: asOptionalNumber(inceptionRange?.minimum),
+      inceptionYearMax: asOptionalNumber(inceptionRange?.maximum),
     }
   }
 

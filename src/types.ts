@@ -57,6 +57,9 @@ export type PlaceFilters = {
   country: string
   instanceOf: string[]
   architecturalStyles: string[]
+  timespanEnabled: boolean
+  timespanStart: number | null
+  timespanEnd: number | null
   sort: 'views' | 'sitelinks' | 'name'
 }
 
@@ -87,4 +90,6 @@ export type AtlasStats = {
   countries: string[]
   instanceOf: TagFilterOption[]
   architecturalStyles: TagFilterOption[]
+  inceptionYearMin?: number
+  inceptionYearMax?: number
 }
