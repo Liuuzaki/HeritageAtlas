@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { ChevronDown, HelpCircle, LocateFixed, X } from 'lucide-react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { ChevronDown, HelpCircle, Languages, LocateFixed, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
@@ -7,7 +7,7 @@ import { countryFlags } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
-import { isArticleSlug, SITE_ARTICLES, SITE_ARTICLES_BY_SLUG, type ArticleSlug } from './content/articles'
+import { isArticleSlug, SITE_ARTICLES_BY_SLUG, type ArticleSlug } from './content/articles'
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata, TagFilterOption } from './types'
 
 type Route = { kind: 'home' } | { kind: 'place'; qid: string } | { kind: 'article'; slug: ArticleSlug }
@@ -15,6 +15,51 @@ type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifyi
 type AtlasManifestConfig = { releaseApiUrl?: unknown; assetName?: unknown; archiveFormat?: unknown }
 type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
+type SiteLanguage = 'en' | 'zh'
+
+type LanguageContextValue = {
+  language: SiteLanguage
+  setLanguage: (language: SiteLanguage) => void
+}
+
+const LanguageContext = createContext<LanguageContextValue>({ language: 'en', setLanguage: () => undefined })
+const LANGUAGE_STORAGE_KEY = 'heritage-atlas-language'
+
+const ARTICLE_UI_TEXT: Record<ArticleSlug, { title: string; eyebrow: string }> = {
+  'about-the-atlas': { title: '关于本图谱', eyebrow: '导览' },
+  'data-and-methodology': { title: '数据与方法', eyebrow: '数据来源' },
+  'explore-further': { title: '延伸探索', eyebrow: '阅览室' },
+}
+
+function useLanguage() {
+  return useContext(LanguageContext)
+}
+
+function uiText(language: SiteLanguage, english: string, chinese: string): string {
+  return language === 'zh' ? chinese : english
+}
+
+function localizedArticleText(slug: ArticleSlug, language: SiteLanguage) {
+  const article = SITE_ARTICLES_BY_SLUG[slug]
+  return language === 'zh' ? ARTICLE_UI_TEXT[slug] : { title: article.title, eyebrow: article.eyebrow }
+}
+
+function LanguageToggle() {
+  const { language, setLanguage } = useLanguage()
+  const nextLanguage: SiteLanguage = language === 'en' ? 'zh' : 'en'
+  return (
+    <button
+      className="language-toggle"
+      type="button"
+      onClick={() => setLanguage(nextLanguage)}
+      aria-label={uiText(language, 'Switch site language to Chinese', '将网站语言切换为英语')}
+      title={uiText(language, 'Switch to Chinese', '切换为英语')}
+    >
+      <Languages size={17} aria-hidden="true" />
+      {language === 'en' ? '中文' : 'English'}
+    </button>
+  )
+}
 
 const PAGE_SIZE = 20
 const DATASET_RELEASES_URL = 'https://github.com/Liuuzaki/HeritageAtlas/releases'
@@ -339,6 +384,7 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
 }
 
 function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilters['sort']; onFocusMap: (place: Place) => void }) {
+  const { language } = useLanguage()
   const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia languages`
   const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
   const flags = countryFlags(place.countryLabelEn)
@@ -367,8 +413,10 @@ function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilte
           type="button"
           onClick={() => onFocusMap(place)}
           disabled={!hasCoordinates}
-          aria-label={hasCoordinates ? `Focus ${place.labelNative} on map` : `No map location for ${place.labelNative}`}
-          title={hasCoordinates ? 'Focus on map' : 'Map location unavailable'}
+          aria-label={hasCoordinates
+            ? uiText(language, `Focus ${place.labelNative} on map`, `在地图上定位 ${place.labelNative}`)
+            : uiText(language, `No map location for ${place.labelNative}`, `${place.labelNative} 没有地图位置`)}
+          title={hasCoordinates ? uiText(language, 'Focus on map', '在地图上定位') : uiText(language, 'Map location unavailable', '地图位置不可用')}
         >
           <LocateFixed size={18} strokeWidth={2} aria-hidden="true" />
         </button>
@@ -451,11 +499,12 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
 }
 
 function TagsSection({ values, nativeLanguageLabel }: { values: string[][]; nativeLanguageLabel?: string }) {
+  const { language } = useLanguage()
   const tags = tagsFromValues(...values)
   return (
     <section className="record-section tags-section" aria-labelledby="place-tags-title">
       <div className="section-heading">
-        <h2 id="place-tags-title">Tags</h2>
+        <h2 id="place-tags-title">{uiText(language, 'Tags', '标签')}</h2>
       </div>
       {tags.length
         ? <ul className="tag-list">{tags.map((tag) => <TagItem key={tag.qid || tag.label} tag={tag} nativeLanguageLabel={nativeLanguageLabel} />)}</ul>
@@ -496,6 +545,7 @@ function useTagTooltip(tag: Tag, nativeLanguageLabel?: string) {
 }
 
 function TagHelp({ tag, placement = 'below' }: { tag: Tag; placement?: 'above' | 'below' }) {
+  const { language } = useLanguage()
   const { open, lookup, loadNames, close } = useTagTooltip(tag)
   return (
     <span
@@ -507,7 +557,7 @@ function TagHelp({ tag, placement = 'below' }: { tag: Tag; placement?: 'above' |
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close()
       }}
     >
-      <button type="button" className="tag-help-button" aria-label={`About ${tag.label}`}>
+      <button type="button" className="tag-help-button" aria-label={uiText(language, `About ${tag.label}`, `关于 ${tag.label}`)}>
         <HelpCircle size={17} aria-hidden="true" />
       </button>
       {open && <TagTooltip tag={tag} lookup={lookup} showNativeName={false} />}
@@ -627,6 +677,7 @@ function wikipediaPageDocument(article: WikipediaArticle): string {
 }
 
 function WikipediaContentSection({ place }: { place: Place }) {
+  const { language } = useLanguage()
   const candidates = useMemo(() => wikipediaCandidates(place), [place.enWikiUrl, place.nativeWikiUrl])
   const [state, setState] = useState<WikipediaLoadState>('idle')
   const [article, setArticle] = useState<WikipediaArticle | null>(null)
@@ -671,7 +722,7 @@ function WikipediaContentSection({ place }: { place: Place }) {
     <section className="record-section wikipedia-section" aria-labelledby="wikipedia-content-title">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Wikipedia</p>
+          <p className="eyebrow">{uiText(language, 'Wikipedia', '维基百科')}</p>
         </div>
         {article && <a href={article.articleUrl} target="_blank" rel="noreferrer">{article.sourceLabel}</a>}
       </div>
@@ -779,6 +830,7 @@ function CommonsGalleryImage({ file, label, index }: { file: CommonsFile; label:
 }
 
 function CommonsImagesSection({ place }: { place: Place }) {
+  const { language } = useLanguage()
   const [state, setState] = useState<CommonsLoadState>('idle')
   const [source, setSource] = useState<CommonsSource | null>(null)
   const [images, setImages] = useState<CommonsFile[]>([])
@@ -838,7 +890,7 @@ function CommonsImagesSection({ place }: { place: Place }) {
     <section className="record-section commons-section" aria-labelledby="commons-images-title">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Wiki Commons</p>
+          <p className="eyebrow">{uiText(language, 'Wiki Commons', '维基共享资源')}</p>
         </div>
         {source && <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceLabel}</a>}
       </div>
@@ -850,33 +902,35 @@ function CommonsImagesSection({ place }: { place: Place }) {
         <div className="commons-gallery">
           {images.map((file, index) => <CommonsGalleryImage key={file.fullUrl} file={file} label={place.labelNative} index={index} />)}
         </div>
-        {continuation && <button className="load-more-button" type="button" onClick={loadMoreImages} disabled={state === 'loading'}>{state === 'loading' ? 'Loading...' : 'Load More'}</button>}
+        {continuation && <button className="load-more-button" type="button" onClick={loadMoreImages} disabled={state === 'loading'}>{state === 'loading' ? uiText(language, 'Loading...', '正在加载...') : uiText(language, 'Load More', '加载更多')}</button>}
       </> : null}
     </section>
   )
 }
 
 function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: string; onClose: () => void }) {
+  const { language } = useLanguage()
   const place = useMemo(() => database.getPlace(qid), [database, qid])
 
   useEffect(() => {
-    document.title = place ? `${place.labelNative} · Heritage Atlas` : 'Record not found · Heritage Atlas'
+    const brand = uiText(language, 'Heritage Atlas', '文化遗产图谱')
+    document.title = place ? `${place.labelNative} · ${brand}` : `${uiText(language, 'Record not found', '未找到记录')} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => {
-      document.title = 'Heritage Atlas'
+      document.title = brand
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [onClose, place])
+  }, [language, onClose, place])
 
   if (!place) {
     return (
       <div className="record-overlay" onMouseDown={onClose}>
         <section className="record-panel record-panel-empty" role="dialog" aria-modal="true" aria-labelledby="record-not-found-title" onMouseDown={(event) => event.stopPropagation()}>
-          <button className="panel-close" type="button" onClick={onClose} aria-label="Close place details">&times;</button>
-          <h1 id="record-not-found-title">Record not found</h1>
+          <button className="panel-close" type="button" onClick={onClose} aria-label={uiText(language, 'Close place details', '关闭地点详情')}>&times;</button>
+          <h1 id="record-not-found-title">{uiText(language, 'Record not found', '未找到记录')}</h1>
           <p>This link does not match the installed atlas dataset.</p>
         </section>
       </div>
@@ -889,7 +943,7 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
   return (
     <div className="record-overlay" onMouseDown={onClose}>
       <section className="record-panel" role="dialog" aria-modal="true" aria-labelledby="place-detail-title" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="panel-close" type="button" onClick={onClose} aria-label="Close place details">&times;</button>
+        <button className="panel-close" type="button" onClick={onClose} aria-label={uiText(language, 'Close place details', '关闭地点详情')}>&times;</button>
         <article className="record-shell">
           <section className="record-hero-wrap">
             <Thumbnail place={place} variant="hero" />
@@ -974,27 +1028,30 @@ function MarkdownArticle({ source }: { source: string }) {
 
 function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => void }) {
   const article = SITE_ARTICLES_BY_SLUG[slug]
+  const { language } = useLanguage()
+  const articleText = localizedArticleText(slug, language)
 
   useEffect(() => {
-    document.title = `${article.title} · Heritage Atlas`
+    const brand = uiText(language, 'Heritage Atlas', '文化遗产图谱')
+    document.title = `${articleText.title} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => {
-      document.title = 'Heritage Atlas'
+      document.title = brand
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [article.title, onClose])
+  }, [articleText.title, language, onClose])
 
   return (
     <div className="record-overlay" onMouseDown={onClose}>
       <section className="record-panel article-panel" role="dialog" aria-modal="true" aria-labelledby="article-title" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="panel-close" type="button" onClick={onClose} aria-label="Close article">&times;</button>
+        <button className="panel-close" type="button" onClick={onClose} aria-label={uiText(language, 'Close article', '关闭文章')}>&times;</button>
         <article className="article-shell">
           <header className="article-header">
-            <p className="eyebrow">{article.eyebrow}</p>
-            <h1 id="article-title">{article.title}</h1>
+            <p className="eyebrow">{articleText.eyebrow}</p>
+            <h1 id="article-title">{articleText.title}</h1>
           </header>
           <MarkdownArticle source={article.source} />
           <p className="article-edit-note">Edit this article in <code>{article.editPath}</code>.</p>
@@ -1029,6 +1086,7 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
   filters: PlaceFilters
   onChange: (patch: Partial<PlaceFilters>) => void
 }) {
+  const { language } = useLanguage()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [sortByCount, setSortByCount] = useState(true)
@@ -1125,14 +1183,14 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
                   resetListScroll()
                 }}
               >
-                Sort by count
+                {uiText(language, 'Sort by count', '按数量排序')}
               </button>
               {selected.length > 0 && (
                 <button type="button" className="tag-filter-clear" onClick={() => {
                   onChange({ [filterKey]: [] })
                   resetListScroll()
                 }}>
-                  <X size={14} aria-hidden="true" /> Clear
+                  <X size={14} aria-hidden="true" /> {uiText(language, 'Clear', '清除')}
                 </button>
               )}
             </span>
@@ -1196,12 +1254,13 @@ function TagFilterDropdown({ filters, stats, onChange }: {
   stats: AtlasStats
   onChange: (patch: Partial<PlaceFilters>) => void
 }) {
+  const { language } = useLanguage()
   return (
     <div className="filter-field tag-filter">
       <span className="filter-label">Tags</span>
       <div className="tag-filter-categories">
-        <TagCategoryDropdown filterKey="instanceOf" label="Instance of" options={stats.instanceOf} filters={filters} onChange={onChange} />
-        <TagCategoryDropdown filterKey="architecturalStyles" label="Architectural style" options={stats.architecturalStyles} filters={filters} onChange={onChange} />
+        <TagCategoryDropdown filterKey="instanceOf" label={uiText(language, 'Instance of', '类型')} options={stats.instanceOf} filters={filters} onChange={onChange} />
+        <TagCategoryDropdown filterKey="architecturalStyles" label={uiText(language, 'Architectural style', '建筑风格')} options={stats.architecturalStyles} filters={filters} onChange={onChange} />
       </div>
     </div>
   )
@@ -1211,6 +1270,7 @@ function TimespanFilter({ filters, onChange }: {
   filters: PlaceFilters
   onChange: (patch: Partial<PlaceFilters>) => void
 }) {
+  const { language } = useLanguage()
   const [startInput, setStartInput] = useState(filters.timespanStart?.toString() ?? '')
   const [endInput, setEndInput] = useState(filters.timespanEnd?.toString() ?? '')
 
@@ -1247,7 +1307,7 @@ function TimespanFilter({ filters, onChange }: {
           Timespan
         </label>
         <span className="timespan-help">
-          <button type="button" aria-label="About the timespan filter" aria-describedby="timespan-help-tooltip">
+          <button type="button" aria-label={uiText(language, 'About the timespan filter', '关于时间范围筛选')} aria-describedby="timespan-help-tooltip">
             <HelpCircle size={15} aria-hidden="true" />
           </button>
           <span id="timespan-help-tooltip" className="timespan-tooltip" role="tooltip">
@@ -1296,6 +1356,7 @@ function TimespanFilter({ filters, onChange }: {
 }
 
 function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, progress, updateNote, localMatchesLatest }: ExploreProps) {
+  const { language } = useLanguage()
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
@@ -1305,7 +1366,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const mapFocusRequestId = useRef(0)
   const placeListRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => { document.title = 'Heritage Atlas' }, [])
+  useEffect(() => { document.title = uiText(language, 'Heritage Atlas', '文化遗产图谱') }, [language])
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
@@ -1361,28 +1422,60 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   return (
     <main>
       <header className="site-header">
-        <div className="site-intro">
-          <div className="site-title-row">
-            <h1>Heritage Atlas</h1>
-            <p className="site-description">An offline-first map for discovering significant places, architectural traditions, and the stories held in open cultural data.</p>
+        <div className="site-title-row">
+          <div className="site-title-left">
+            <h1>{uiText(language, 'Heritage Atlas', '文化遗产图谱')}</h1>
+            <a
+              className="site-about-link"
+              href={articleHref('about-the-atlas')}
+            >
+              {localizedArticleText('about-the-atlas', language).title}
+            </a>
           </div>
-          <nav className="site-article-links" aria-label="About Heritage Atlas">
-            {SITE_ARTICLES.map((article) => <a key={article.slug} href={articleHref(article.slug)}>{article.title}</a>)}
-          </nav>
-        </div>
-        <div className="data-status">
-          <strong>{installed.name}</strong>
-          <span>{stats.placeCount.toLocaleString()} places · {formatBytes(installed.bytes)} · {installed.version}</span>
-          <div className="data-status-actions">
-            {updateAvailable ? <button className="small-button" onClick={onInstallLatest} disabled={updating}>{updating ? 'Updating…' : 'Update'}</button> : <button className="small-button" onClick={onCheckUpdates} disabled={updating}>{updating ? 'Checking…' : 'Check for updates'}</button>}
-            <a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">Download manually</a>
-            <button className="text-button" onClick={onDelete} disabled={updating}>Delete local data</button>
+
+          <div className="site-title-right">
+            <div className="data-status">
+              <div className="data-status-copy">
+                <strong>{installed.name}</strong>
+                <span>
+                  {stats.placeCount.toLocaleString()} places · {formatBytes(installed.bytes)}
+                </span>
+              </div>
+
+              <div className="data-status-actions">
+                {updateAvailable ? (
+                  <button className="small-button" onClick={onInstallLatest} disabled={updating}>
+                    {updating ? uiText(language, 'Updating…', '正在更新…') : uiText(language, 'Update', '更新')}
+                  </button>
+                ) : (
+                  <button className="small-button" onClick={onCheckUpdates} disabled={updating}>
+                    {updating ? uiText(language, 'Checking…', '正在检查…') : uiText(language, 'Check for updates', '检查更新')}
+                  </button>
+                )}
+
+                <a className="small-button" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">
+                  {uiText(language, 'Download manually', '手动下载')}
+                </a>
+
+                <button className="small-button" onClick={onDelete} disabled={updating}>
+                  {uiText(language, 'Delete local data', '删除本地数据')}
+                </button>
+              </div>
+
+              {updating && (
+                <div className="data-status-progress" role="status" aria-live="polite">
+                  <span>{updateProgressLabel}{updatePercent !== undefined ? ` ${updatePercent}%` : ''}</span>
+                  <progress
+                    aria-label={updateProgressLabel}
+                    value={progress.total && progress.received > 0 ? progress.received : undefined}
+                    max={progress.total}
+                  />
+                </div>
+              )}
+            </div>
+
+            <LanguageToggle />
           </div>
-          {updating && <div className="data-status-progress" role="status" aria-live="polite">
-            <span>{updateProgressLabel}{updatePercent !== undefined ? ` ${updatePercent}%` : ''}</span>
-            <progress aria-label={updateProgressLabel} value={progress.total && progress.received > 0 ? progress.received : undefined} max={progress.total} />
-          </div>}
-          {updateNote && <span className="update-note">{updateNote}</span>}
         </div>
       </header>
 
@@ -1403,9 +1496,9 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
             {!result.items.length && <p className="notice">No places match these filters.</p>}
           </div>
           {result.total > PAGE_SIZE && <nav className="pagination" aria-label="Results pagination">
-            <button onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0}>← Previous</button>
+            <button onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0}>← {uiText(language, 'Previous', '上一页')}</button>
             <label className="page-status">Page <input type="number" min="1" max={pageCount} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageJump} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyPageJump() } }} aria-label="Current page" /> of {pageCount}</label>
-            <button onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={page + 1 >= pageCount}>Next →</button>
+            <button onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={page + 1 >= pageCount}>{uiText(language, 'Next', '下一页')} →</button>
           </nav>}
         </aside>
       </section>
@@ -1425,6 +1518,7 @@ type InstallerProps = {
 }
 
 function Installer({ manifest, current, progress, error, notice, onDownload, onImport }: InstallerProps) {
+  const { language } = useLanguage()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const percent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const working = progress.stage !== 'idle'
@@ -1445,20 +1539,25 @@ function Installer({ manifest, current, progress, error, notice, onDownload, onI
   return (
     <main className="installer-page">
       <section className="installer-card">
-        <p className="eyebrow">Offline-first heritage database</p>
-        <h1>Get the dataset</h1>
+        <div className="installer-heading">
+          <div>
+            <p className="eyebrow">{uiText(language, 'Offline-first heritage database', '离线优先的文化遗产数据库')}</p>
+            <h1>{uiText(language, 'Get the dataset', '获取数据集')}</h1>
+          </div>
+          <LanguageToggle />
+        </div>
         <p>The dataset is distributed through GitHub. You need to download it on your first visit. 
           This helps reduce bandwidth usage and improves query performance.</p>
         {manifest
-          ? <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Size</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}<div><dt>Alternative</dt><dd><a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">Download manually</a></dd></div></dl>
+          ? <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Size</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}<div><dt>Alternative</dt><dd><a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">{uiText(language, 'Download manually', '手动下载')}</a></dd></div></dl>
           : <div className="dataset-facts dataset-facts-loading" role="status" aria-live="polite"><span className="loading-dot" aria-hidden="true" />Loading dataset details…</div>}
         {current && <p className="notice">A previous dataset is available locally ({current.name}, {current.version}), but it could not be opened yet.</p>}
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="notice error">{error}</p>}
         {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{progress.stage === 'downloading' && progress.received === 0 ? 'Waiting for the first bytes…' : <>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</>}</span><progress value={progress.received > 0 ? progress.received : undefined} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
         <div className="installer-actions">
-          <button className="primary-button" onClick={onDownload} disabled={!manifest || working}>{working ? 'Working…' : 'Download dataset'}</button>
-          <button onClick={() => inputRef.current?.click()} disabled={working}>Import a sqlite file</button>
+          <button className="primary-button" onClick={onDownload} disabled={!manifest || working}>{working ? uiText(language, 'Working…', '正在处理…') : uiText(language, 'Download dataset', '下载数据集')}</button>
+          <button onClick={() => inputRef.current?.click()} disabled={working}>{uiText(language, 'Import a sqlite file', '导入 SQLite 文件')}</button>
           <input ref={inputRef} type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3,application/x-sqlite3" hidden onChange={chooseFile} />
         </div>
       </section>
@@ -1467,6 +1566,13 @@ function Installer({ manifest, current, progress, error, notice, onDownload, onI
 }
 
 export default function App() {
+  const [language, setLanguage] = useState<SiteLanguage>(() => {
+    try {
+      return localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'zh' ? 'zh' : 'en'
+    } catch {
+      return 'en'
+    }
+  })
   const [database, setDatabase] = useState<AtlasDatabase | null>(null)
   const [stats, setStats] = useState<AtlasStats>(EMPTY_STATS)
   const [manifest, setManifest] = useState<AtlasManifest | null>(null)
@@ -1476,6 +1582,15 @@ export default function App() {
   const [updateNote, setUpdateNote] = useState('')
   const [localMatchesLatest, setLocalMatchesLatest] = useState<boolean | null>(null)
   const route = useHashRoute()
+
+  useEffect(() => {
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+    } catch {
+      // The language switch still works when browser storage is unavailable.
+    }
+  }, [language])
 
   const openLocalBytes = useCallback(async (bytes: Uint8Array) => {
     const opened = await AtlasDatabase.open(bytes)
@@ -1618,14 +1733,16 @@ export default function App() {
   }, [database])
 
   if (!database || !installed) {
-    return <Installer manifest={manifest} current={installed} progress={progress} error={error} notice={updateNote} onDownload={downloadLatest} onImport={importAtlas} />
+    return <LanguageContext.Provider value={{ language, setLanguage }}>
+      <Installer manifest={manifest} current={installed} progress={progress} error={error} notice={updateNote} onDownload={downloadLatest} onImport={importAtlas} />
+    </LanguageContext.Provider>
   }
 
   const closePanel = () => { window.location.hash = '/' }
 
-  return <>
+  return <LanguageContext.Provider value={{ language, setLanguage }}>
     <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} progress={progress} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
     {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePanel} />}
     {route.kind === 'article' && <ArticlePanel slug={route.slug} onClose={closePanel} />}
-  </>
+  </LanguageContext.Provider>
 }
