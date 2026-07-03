@@ -7,9 +7,10 @@ import { countryFlags } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
+import { isArticleSlug, SITE_ARTICLES, SITE_ARTICLES_BY_SLUG, type ArticleSlug } from './content/articles'
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata, TagFilterOption } from './types'
 
-type Route = { kind: 'home' } | { kind: 'place'; qid: string }
+type Route = { kind: 'home' } | { kind: 'place'; qid: string } | { kind: 'article'; slug: ArticleSlug }
 type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifying' | 'installing'; received: number; total?: number }
 type AtlasManifestConfig = { releaseApiUrl?: unknown; assetName?: unknown; archiveFormat?: unknown }
 type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
@@ -142,6 +143,9 @@ const WIKIDATA_LANGUAGE_CODES: Record<string, string> = {
 
 function readRoute(): Route {
   const raw = window.location.hash.replace(/^#/, '')
+  const articleMatch = raw.match(/^\/article\/([^/]+)\/?$/)
+  const articleSlug = articleMatch?.[1]
+  if (articleSlug && isArticleSlug(articleSlug)) return { kind: 'article', slug: articleSlug }
   const match = raw.match(/^\/place\/([^/]+)\/?$/)
   const qid = match?.[1]
   return qid ? { kind: 'place', qid: decodeURIComponent(qid) } : { kind: 'home' }
@@ -149,6 +153,10 @@ function readRoute(): Route {
 
 function placeHref(qid: string): string {
   return `#/place/${encodeURIComponent(qid)}`
+}
+
+function articleHref(slug: ArticleSlug): string {
+  return `#/article/${slug}`
 }
 
 function useHashRoute(): Route {
@@ -904,6 +912,98 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
   )
 }
 
+function renderArticleInline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g).filter(Boolean).map((part, index) => {
+    const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+    if (link?.[1] && link[2]) {
+      const external = /^https?:\/\//i.test(link[2])
+      return <a key={`${part}-${index}`} href={link[2]} target={external ? '_blank' : undefined} rel={external ? 'noreferrer' : undefined}>{link[1]}</a>
+    }
+    const strong = part.match(/^\*\*(.+)\*\*$/)
+    return strong?.[1] ? <strong key={`${part}-${index}`}>{strong[1]}</strong> : part
+  })
+}
+
+function MarkdownArticle({ source }: { source: string }) {
+  const lines = source.replace(/\r\n/g, '\n').split('\n')
+  const blocks: ReactNode[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = (lines[index] ?? '').trim()
+    if (!line) {
+      index += 1
+      continue
+    }
+
+    const heading = line.match(/^(#{2,3})\s+(.+)$/)
+    if (heading?.[2]) {
+      blocks.push(heading[1] === '##'
+        ? <h2 key={`heading-${index}`}>{renderArticleInline(heading[2])}</h2>
+        : <h3 key={`heading-${index}`}>{renderArticleInline(heading[2])}</h3>)
+      index += 1
+      continue
+    }
+
+    if (line.startsWith('- ')) {
+      const items: ReactNode[] = []
+      const listStart = index
+      while (index < lines.length) {
+        const item = (lines[index] ?? '').trim()
+        if (!item.startsWith('- ')) break
+        items.push(<li key={`item-${index}`}>{renderArticleInline(item.slice(2))}</li>)
+        index += 1
+      }
+      blocks.push(<ul key={`list-${listStart}`}>{items}</ul>)
+      continue
+    }
+
+    const paragraph: string[] = []
+    const paragraphStart = index
+    while (index < lines.length) {
+      const part = (lines[index] ?? '').trim()
+      if (!part || /^(#{2,3})\s+/.test(part) || part.startsWith('- ')) break
+      paragraph.push(part)
+      index += 1
+    }
+    blocks.push(<p key={`paragraph-${paragraphStart}`}>{renderArticleInline(paragraph.join(' '))}</p>)
+  }
+
+  return <div className="article-body">{blocks}</div>
+}
+
+function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => void }) {
+  const article = SITE_ARTICLES_BY_SLUG[slug]
+
+  useEffect(() => {
+    document.title = `${article.title} · Heritage Atlas`
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.title = 'Heritage Atlas'
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [article.title, onClose])
+
+  return (
+    <div className="record-overlay" onMouseDown={onClose}>
+      <section className="record-panel article-panel" role="dialog" aria-modal="true" aria-labelledby="article-title" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="panel-close" type="button" onClick={onClose} aria-label="Close article">&times;</button>
+        <article className="article-shell">
+          <header className="article-header">
+            <p className="eyebrow">{article.eyebrow}</p>
+            <h1 id="article-title">{article.title}</h1>
+          </header>
+          <MarkdownArticle source={article.source} />
+          <p className="article-edit-note">Edit this article in <code>{article.editPath}</code>.</p>
+        </article>
+      </section>
+    </div>
+  )
+}
+
 type ExploreProps = {
   database: AtlasDatabase
   stats: AtlasStats
@@ -1212,8 +1312,6 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const mapPlaces = useMemo(() => bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds])
   const mapDataKey = JSON.stringify(filters)
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
-  const from = result.total ? page * PAGE_SIZE + 1 : 0
-  const to = Math.min((page + 1) * PAGE_SIZE, result.total)
   const updateAvailable = Boolean(manifest && localMatchesLatest === false)
   const updating = progress.stage !== 'idle'
   const updatePercent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
@@ -1263,20 +1361,28 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   return (
     <main>
       <header className="site-header">
-        <div>
-          <h1>Heritage Atlas</h1>
+        <div className="site-intro">
+          <div className="site-title-row">
+            <h1>Heritage Atlas</h1>
+            <p className="site-description">An offline-first map for discovering significant places, architectural traditions, and the stories held in open cultural data.</p>
+          </div>
+          <nav className="site-article-links" aria-label="About Heritage Atlas">
+            {SITE_ARTICLES.map((article) => <a key={article.slug} href={articleHref(article.slug)}>{article.title}</a>)}
+          </nav>
         </div>
         <div className="data-status">
           <strong>{installed.name}</strong>
           <span>{stats.placeCount.toLocaleString()} places · {formatBytes(installed.bytes)} · {installed.version}</span>
-          {updateAvailable ? <button className="small-button" onClick={onInstallLatest} disabled={updating}>{updating ? 'Updating…' : 'Update'}</button> : <button className="small-button" onClick={onCheckUpdates} disabled={updating}>{updating ? 'Checking…' : 'Check for updates'}</button>}
-          <a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">Download manually</a>
+          <div className="data-status-actions">
+            {updateAvailable ? <button className="small-button" onClick={onInstallLatest} disabled={updating}>{updating ? 'Updating…' : 'Update'}</button> : <button className="small-button" onClick={onCheckUpdates} disabled={updating}>{updating ? 'Checking…' : 'Check for updates'}</button>}
+            <a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">Download manually</a>
+            <button className="text-button" onClick={onDelete} disabled={updating}>Delete local data</button>
+          </div>
           {updating && <div className="data-status-progress" role="status" aria-live="polite">
             <span>{updateProgressLabel}{updatePercent !== undefined ? ` ${updatePercent}%` : ''}</span>
             <progress aria-label={updateProgressLabel} value={progress.total && progress.received > 0 ? progress.received : undefined} max={progress.total} />
           </div>}
           {updateNote && <span className="update-note">{updateNote}</span>}
-          <button className="text-button" onClick={onDelete} disabled={updating}>Delete local data</button>
         </div>
       </header>
 
@@ -1286,9 +1392,8 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
         <TimespanFilter filters={filters} onChange={updateFilters} />
+        <p className="results-summary controls-results-summary" role="status" aria-live="polite">{result.total.toLocaleString()} places match.</p>
       </section>
-
-      <p className="results-summary">{result.total.toLocaleString()} places match. Results {from.toLocaleString()}–{to.toLocaleString()} are loaded locally; the map uses country clusters at low zoom and area clusters at medium zoom.</p>
 
       <section className="atlas-layout">
         <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
@@ -1516,10 +1621,11 @@ export default function App() {
     return <Installer manifest={manifest} current={installed} progress={progress} error={error} notice={updateNote} onDownload={downloadLatest} onImport={importAtlas} />
   }
 
-  const closePlace = () => { window.location.hash = '/' }
+  const closePanel = () => { window.location.hash = '/' }
 
   return <>
     <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} progress={progress} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
-    {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePlace} />}
+    {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePanel} />}
+    {route.kind === 'article' && <ArticlePanel slug={route.slug} onClose={closePanel} />}
   </>
 }

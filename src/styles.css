@@ -38,6 +38,66 @@ main {
   margin-bottom: 24px;
 }
 
+.site-intro {
+  flex: 1;
+  min-width: 0;
+}
+
+.site-title-row {
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(18px, 3vw, 38px);
+  flex-wrap: wrap;
+}
+
+.site-title-row h1 {
+  white-space: nowrap;
+}
+
+.site-description {
+  flex: 1;
+  min-width: 280px;
+  max-width: 590px;
+  margin: 0 0 3px;
+  padding-left: 20px;
+  border-left: 2px solid #d8a24a;
+  line-height: 1.55;
+}
+
+.site-article-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(24px, 4vw, 54px);
+  width: 100%;
+  margin-top: 24px;
+}
+
+.site-article-links a {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 14px 2px 10px;
+  border-top: 1px solid #b9c5d2;
+  color: #263548;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-decoration: none;
+  transition: border-color .16s ease, color .16s ease;
+}
+
+.site-article-links a::after {
+  content: '→';
+  margin-left: 12px;
+  color: #8a5a0a;
+  font-size: 1.05rem;
+}
+
+.site-article-links a:hover {
+  border-color: #064e93;
+  color: #064e93;
+}
+
 .eyebrow {
   color: #965c00;
   font-weight: 700;
@@ -526,6 +586,15 @@ h1 {
 .results-summary {
   color: #5d6878;
   font-size: .9rem;
+}
+
+.controls-results-summary {
+  grid-column: 2 / -1;
+  align-self: end;
+  justify-self: start;
+  margin: 0;
+  padding: 0 0 .55rem 2px;
+  font-weight: 700;
 }
 
 .atlas-layout {
@@ -1088,6 +1157,79 @@ footer {
   overflow: hidden;
 }
 
+.article-panel {
+  width: min(860px, 100%);
+}
+
+.article-shell {
+  overflow: hidden;
+  border: 1px solid #dbe2ea;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.article-header {
+  padding: clamp(26px, 5vw, 46px);
+  border-bottom: 1px solid #e5eaf0;
+  background: linear-gradient(135deg, #fff 55%, #f4f7fa);
+}
+
+.article-header h1 {
+  max-width: 700px;
+}
+
+.article-body {
+  max-width: 760px;
+  padding: clamp(26px, 5vw, 46px);
+  color: #334155;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.article-body h2,
+.article-body h3 {
+  color: #18212f;
+  line-height: 1.2;
+}
+
+.article-body h2 {
+  margin: 2.1rem 0 .65rem;
+  font-size: 1.45rem;
+}
+
+.article-body h2:first-child {
+  margin-top: 0;
+}
+
+.article-body h3 {
+  margin: 1.6rem 0 .55rem;
+  font-size: 1.1rem;
+}
+
+.article-body p {
+  margin: 0 0 1rem;
+}
+
+.article-body ul {
+  display: grid;
+  gap: .55rem;
+  margin: 0 0 1.2rem;
+  padding-left: 1.25rem;
+}
+
+.article-edit-note {
+  margin: 0;
+  padding: 15px clamp(26px, 5vw, 46px);
+  border-top: 1px solid #e5eaf0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: .78rem;
+}
+
+.article-edit-note code {
+  color: #334155;
+}
+
 .record-hero-wrap {
   padding: 24px;
   display: grid;
@@ -1470,6 +1612,31 @@ footer {
     display: grid;
   }
 
+  .site-title-row {
+    display: grid;
+    gap: 14px;
+  }
+
+  .site-title-row h1 {
+    white-space: normal;
+  }
+
+  .site-description {
+    min-width: 0;
+    padding: 12px 0 0;
+    border-top: 2px solid #d8a24a;
+    border-left: 0;
+  }
+
+  .site-article-links {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .site-article-links a {
+    padding: 11px 2px 7px;
+  }
+
   .controls {
     grid-template-columns: 1fr 1fr;
   }
@@ -1478,6 +1645,11 @@ footer {
   .controls > .tag-filter,
   .controls > .timespan-filter {
     grid-column: 1 / -1;
+  }
+
+  .controls-results-summary {
+    grid-column: 1 / -1;
+    padding: 0;
   }
 
   .record-overlay {
@@ -1533,9 +1705,9 @@ footer {
 
 .data-status {
   display: grid;
-  gap: 4px;
-  min-width: 230px;
-  padding: 12px 14px;
+  gap: 3px;
+  min-width: 330px;
+  padding: 10px 12px;
   border: 1px solid #dbe2ea;
   border-radius: 12px;
   background: #fff;
@@ -1546,6 +1718,25 @@ footer {
 .data-status strong {
   color: #18212f;
   font-size: .9rem;
+}
+
+.data-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
+.data-status-actions .small-button {
+  margin-top: 0;
+  padding: .4rem .55rem;
+  font-size: .72rem;
+}
+
+.data-status-actions .manual-download-link,
+.data-status-actions .text-button {
+  font-size: .7rem;
 }
 
 .data-status-progress {
@@ -1770,6 +1961,10 @@ footer {
 @media (max-width: 680px) {
   .data-status {
     min-width: 0;
+  }
+
+  .data-status-actions {
+    flex-wrap: wrap;
   }
 
   .dataset-facts {
