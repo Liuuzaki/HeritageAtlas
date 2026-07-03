@@ -26,7 +26,7 @@ const LanguageContext = createContext<LanguageContextValue>({ language: 'en', se
 const LANGUAGE_STORAGE_KEY = 'heritage-atlas-language'
 
 const ARTICLE_UI_TEXT: Record<ArticleSlug, { title: string; eyebrow: string }> = {
-  'about-the-atlas': { title: '关于本图谱', eyebrow: '导览' },
+  'about-the-atlas': { title: '关于本站', eyebrow: '导览' },
   'data-and-methodology': { title: '数据与方法', eyebrow: '数据来源' },
   'explore-further': { title: '延伸探索', eyebrow: '阅览室' },
 }
@@ -35,7 +35,7 @@ function useLanguage() {
   return useContext(LanguageContext)
 }
 
-function uiText(language: SiteLanguage, english: string, chinese: string): string {
+export function uiText(language: SiteLanguage, english: string, chinese: string): string {
   return language === 'zh' ? chinese : english
 }
 
@@ -399,7 +399,7 @@ function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilte
             <DesignationText values={place.designations} limit={2} className="card-designations" />
             <span className="card-popularity-row">
               <span className="map-card-popularity" title={popularityTitle}>
-                <span>Wiki popularity</span>
+                <span>{uiText(language, 'Wiki popularity', 'Wiki 热度')}</span>
                 <strong>{place.wikipediaSitelinksCount > 100 ? '100+' : place.wikipediaSitelinksCount.toLocaleString()}</strong>
               </span>
               {sort === 'views' && place.wikiViewCount ? <span className="map-card-views">{formatViews(place.wikiViewCount)} TODO: Wikipedia pageview</span> : null}
@@ -480,16 +480,17 @@ function aliasedLinks(place: Place): { href: string; label: string }[] {
 }
 
 function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place; coordinateText: string; hasCoordinates: boolean }) {
+  const { language } = useLanguage()
   const links = aliasedLinks(place)
   const googleMapsUrl = hasCoordinates ? `https://www.google.com/maps/search/?api=1&query=${place.latitude},${place.longitude}` : ''
 
   return (
-    <section className="record-summary" aria-label="Record details">
+    <section className="record-summary" aria-label={uiText(language, 'Record details', '记录详情')}>
       <dl className="summary-facts">
-        <DetailRow label="Country">{place.countryLabelEn || 'Not recorded'}</DetailRow>
-        <DetailRow label="Heritage designation"><DesignationText values={place.designations} /></DetailRow>
-        <DetailRow label="Inception"><TextList values={place.inceptionValues} formatValue={formatInception} /></DetailRow>
-        <DetailRow label="Map coordinates">{hasCoordinates ? <a href={googleMapsUrl} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
+        <DetailRow label={uiText(language, 'Country', '国家/地区')}>{place.countryLabelEn || 'Not recorded'}</DetailRow>
+        <DetailRow label={uiText(language, 'Heritage designation', '遗产认定')}><DesignationText values={place.designations} /></DetailRow>
+        <DetailRow label={uiText(language, 'Inception', '始建时间')}><TextList values={place.inceptionValues} formatValue={formatInception} /></DetailRow>
+        <DetailRow label={uiText(language, 'Map coordinates', '地图坐标')}>{hasCoordinates ? <a href={googleMapsUrl} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
       </dl>
       {links.length > 0 && <nav className="summary-links" aria-label="Record links">
         {links.map((link) => <a key={link.href} href={link.href} target="_blank" rel="noreferrer">{link.label}</a>)}
@@ -1257,7 +1258,7 @@ function TagFilterDropdown({ filters, stats, onChange }: {
   const { language } = useLanguage()
   return (
     <div className="filter-field tag-filter">
-      <span className="filter-label">Tags</span>
+      <span className="filter-label">{uiText(language, 'Tags', '标签')}</span>
       <div className="tag-filter-categories">
         <TagCategoryDropdown filterKey="instanceOf" label={uiText(language, 'Instance of', '类型')} options={stats.instanceOf} filters={filters} onChange={onChange} />
         <TagCategoryDropdown filterKey="architecturalStyles" label={uiText(language, 'Architectural style', '建筑风格')} options={stats.architecturalStyles} filters={filters} onChange={onChange} />
@@ -1304,7 +1305,7 @@ function TimespanFilter({ filters, onChange }: {
             checked={filters.timespanEnabled}
             onChange={(event) => onChange({ timespanEnabled: event.target.checked })}
           />
-          Timespan
+          {uiText(language, 'Timespan', '时间范围')}
         </label>
         <span className="timespan-help">
           <button type="button" aria-label={uiText(language, 'About the timespan filter', '关于时间范围筛选')} aria-describedby="timespan-help-tooltip">
@@ -1321,8 +1322,8 @@ function TimespanFilter({ filters, onChange }: {
           type="number"
           step="1"
           value={startInput}
-          placeholder="From"
-          aria-label="Timespan from year"
+          placeholder={uiText(language, 'From', '起始年份')}
+          aria-label={uiText(language, 'Timespan from year', '时间范围起始年份')}
           disabled={!filters.timespanEnabled}
           onChange={(event) => setStartInput(event.target.value)}
           onBlur={applyTimespan}
@@ -1338,8 +1339,8 @@ function TimespanFilter({ filters, onChange }: {
           type="number"
           step="1"
           value={endInput}
-          placeholder="To"
-          aria-label="Timespan until year"
+          placeholder={uiText(language, 'To', '结束年份')}
+          aria-label={uiText(language, 'Timespan until year', '时间范围结束年份')}
           disabled={!filters.timespanEnabled}
           onChange={(event) => setEndInput(event.target.value)}
           onBlur={applyTimespan}
@@ -1431,6 +1432,12 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
             >
               {localizedArticleText('about-the-atlas', language).title}
             </a>
+            <a
+              className="site-about-link"
+              href={articleHref('explore-further')}
+            >
+              {localizedArticleText('explore-further', language).title}
+            </a>
           </div>
 
           <div className="site-title-right">
@@ -1479,13 +1486,13 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         </div>
       </header>
 
-      <section className="controls" aria-label="Place filters">
-        <label>Search<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} onBlur={applySearch} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applySearch() } }} placeholder="Name, country, style, designation…" /></label>
+      <section className="controls" aria-label={uiText(language, 'Place filters', '地点筛选')}>
+        <label>{uiText(language, 'Search', '搜索')}<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} onBlur={applySearch} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applySearch() } }} placeholder={uiText(language, 'Name, country, style, designation…', '名称、国家/地区、风格、遗产认定…')} /></label>
         <TagFilterDropdown filters={filters} stats={{ ...stats, ...tagFilterStats }} onChange={updateFilters} />
-        <label>Country<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">All countries</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label>Sort<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">Wikipedia popularity</option><option value="views">TODO: Wikipedia pageview</option><option value="name">Name</option></select></label>
+        <label>{uiText(language, 'Country', '国家/地区')}<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">{uiText(language, 'All countries', '所有国家/地区')}</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label>{uiText(language, 'Sort', '排序')}<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">{uiText(language, 'Wikipedia popularity', '维基百科热度')}</option><option value="views">TODO: Wikipedia pageview</option><option value="name">{uiText(language, 'Name', '名称')}</option></select></label>
         <TimespanFilter filters={filters} onChange={updateFilters} />
-        <p className="results-summary controls-results-summary" role="status" aria-live="polite">{result.total.toLocaleString()} places match.</p>
+        <p className="results-summary controls-results-summary" role="status" aria-live="polite">{result.total.toLocaleString()} {uiText(language, 'places match.', '个地点符合')}</p>
       </section>
 
       <section className="atlas-layout">
@@ -1497,7 +1504,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
           </div>
           {result.total > PAGE_SIZE && <nav className="pagination" aria-label="Results pagination">
             <button onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0}>← {uiText(language, 'Previous', '上一页')}</button>
-            <label className="page-status">Page <input type="number" min="1" max={pageCount} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageJump} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyPageJump() } }} aria-label="Current page" /> of {pageCount}</label>
+            <label className="page-status">{uiText(language, 'Page', '页数')}<input type="number" min="1" max={pageCount} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageJump} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyPageJump() } }} aria-label="Current page" /> / {pageCount}</label>
             <button onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={page + 1 >= pageCount}>{uiText(language, 'Next', '下一页')} →</button>
           </nav>}
         </aside>

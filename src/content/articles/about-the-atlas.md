@@ -1,16 +1,17 @@
-Heritage Atlas is a map-led catalogue for discovering culturally significant places across countries, periods, and architectural traditions.
+## +++
+本站基于Wiki全家桶（Wikipedia，Wikidata，Wikicommons），聚合了世界各国的建筑文化遗产数据，目前收录了28国约30万处地点。
 
-## What you can do
+足够多的数据，良好的筛选功能，这些自然都很重要，但本站真正的特点在于Wiki热度的排名。有一个事实不得不承认——没人能把全世界的建筑文化遗产全都看一遍。因此，仅仅把它们罗列在网站上是不够的，我们还必须按照某种“重要性”排列它们，否则就会被几千年人类文明积攒下的天文数字所淹没。
 
-- Search places by name, country, style, or designation.
-- Filter the catalogue by category and historical timespan.
-- Move between a geographic overview and detailed place records.
-- Browse locally after installing the dataset in your browser.
+我选择用一座建筑的Wikipedia语言版本数量来代表其“重要性”，就实践而言，大部分情况下这是个不错的指标。
 
-## Why it works offline
+显然，本站只收录了那些至少有一个Wikipedia页面的建筑，而这只占各国官方古建数据库的一小部分。例如，法国文化部的Mérimée数据库收录了336240处建筑，而本站仅收录了其中的32134处，占比不到十分之一。但还是那个无奈的事实——没人能把这些全都看完。既然Wiki编辑者们已经从中选出了那些他们认为值得编辑的词条，那我们就不妨借用一下他们用笔投票的结果。
 
-The catalogue is distributed as a compact SQLite database. Once installed, searches, filters, sorting, and pagination happen on your device. Map tiles, Wikipedia articles, and hosted images still require a network connection.
+将Wiki热度与筛选功能相结合，我们就可以查询这样的问题：17世纪（1600-1699）有哪些比较著名（Wiki热度较高）的巴洛克（标签：baroque）式教堂（标签：church）？
 
-## A living atlas
+## ---
+本站全面引用Wiki全家桶的数据，因此也继承了Wiki全家桶的不足之处。
 
-Heritage data is never truly finished. Names change, records improve, and new places are documented. Treat this atlas as a route into further research rather than a final authority.
+- 国家之间的数据量相当不平衡。例如中国和日本的数据量与其古迹数量完全不成正比，这一方面是因为两国的官方数据库（文物保护单位、登録有形文化財）的收录范围本来就较小，另一方面也是因为两国的Wiki编辑者较少。
+- 用于筛选地点的结构化数据几乎全部来源于Wikidata，而Wikidata的知名度远不如Wikipedia，编辑者也较少，虽然依靠bot导入了许多数据，但仍然多有错漏。尤其是，仅有约三分之一的地点标记了建造年份的数据。
+- Wikipedia词条的总浏览量也许是个更好的热度指标，但查询浏览量的api有频率限制，目前还没有获取到足够的数据。
