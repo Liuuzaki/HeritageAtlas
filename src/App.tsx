@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { ChevronDown, HelpCircle, Languages, LocateFixed, X } from 'lucide-react'
+import { ChevronDown, Download, HelpCircle, Languages, LocateFixed, RefreshCw, Trash2, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
@@ -914,7 +914,7 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
   const place = useMemo(() => database.getPlace(qid), [database, qid])
 
   useEffect(() => {
-    const brand = uiText(language, 'Heritage Atlas', '文化遗产图谱')
+    const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')
     document.title = place ? `${place.labelNative} · ${brand}` : `${uiText(language, 'Record not found', '未找到记录')} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -1033,7 +1033,7 @@ function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => voi
   const articleText = localizedArticleText(slug, language)
 
   useEffect(() => {
-    const brand = uiText(language, 'Heritage Atlas', '文化遗产图谱')
+    const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')
     document.title = `${articleText.title} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -1367,7 +1367,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const mapFocusRequestId = useRef(0)
   const placeListRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => { document.title = uiText(language, 'Heritage Atlas', '文化遗产图谱') }, [language])
+  useEffect(() => { document.title = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱') }, [language])
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
@@ -1376,6 +1376,11 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
   const updateAvailable = Boolean(manifest && localMatchesLatest === false)
   const updating = progress.stage !== 'idle'
+  const updateButtonLabel = updateAvailable
+    ? uiText(language, updating ? 'Updating…' : 'Update', updating ? '正在更新…' : '更新')
+    : uiText(language, updating ? 'Checking…' : 'Check for updates', updating ? '正在检查…' : '检查更新')
+  const manualDownloadLabel = uiText(language, 'Download manually', '手动下载')
+  const deleteLocalDataLabel = uiText(language, 'Delete local data', '删除本地数据')
   const updatePercent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const updateProgressLabel = progress.stage === 'downloading'
     ? progress.received > 0 ? 'Downloading update…' : 'Connecting to download…'
@@ -1425,7 +1430,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       <header className="site-header">
         <div className="site-title-row">
           <div className="site-title-left">
-            <h1>{uiText(language, 'Heritage Atlas', '文化遗产图谱')}</h1>
+            <h1>{uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')}</h1>
             <a
               className="site-about-link"
               href={articleHref('about-the-atlas')}
@@ -1451,21 +1456,21 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
 
               <div className="data-status-actions">
                 {updateAvailable ? (
-                  <button className="small-button" onClick={onInstallLatest} disabled={updating}>
-                    {updating ? uiText(language, 'Updating…', '正在更新…') : uiText(language, 'Update', '更新')}
+                  <button className="small-button data-status-icon-button" onClick={onInstallLatest} disabled={updating} aria-label={updateButtonLabel} title={updateButtonLabel}>
+                    <RefreshCw size={16} aria-hidden="true" />
                   </button>
                 ) : (
-                  <button className="small-button" onClick={onCheckUpdates} disabled={updating}>
-                    {updating ? uiText(language, 'Checking…', '正在检查…') : uiText(language, 'Check for updates', '检查更新')}
+                  <button className="small-button data-status-icon-button" onClick={onCheckUpdates} disabled={updating} aria-label={updateButtonLabel} title={updateButtonLabel}>
+                    <RefreshCw size={16} aria-hidden="true" />
                   </button>
                 )}
 
-                <a className="small-button" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">
-                  {uiText(language, 'Download manually', '手动下载')}
+                <a className="small-button data-status-icon-button" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer" aria-label={manualDownloadLabel} title={manualDownloadLabel}>
+                  <Download size={16} aria-hidden="true" />
                 </a>
 
-                <button className="small-button" onClick={onDelete} disabled={updating}>
-                  {uiText(language, 'Delete local data', '删除本地数据')}
+                <button className="small-button data-status-icon-button" onClick={onDelete} disabled={updating} aria-label={deleteLocalDataLabel} title={deleteLocalDataLabel}>
+                  <Trash2 size={16} aria-hidden="true" />
                 </button>
               </div>
 
@@ -1496,7 +1501,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       </section>
 
       <section className="atlas-layout">
-        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
+        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} wikiPopularityLabel={uiText(language, 'Wiki popularity', 'Wiki 热度')} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
         <aside className="place-list-panel" aria-label="Heritage place results">
           <div ref={placeListRef} className="place-list">
             {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}

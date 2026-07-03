@@ -27,11 +27,11 @@ a {
 main {
   max-width: 1500px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 12px;
 }
 
 .site-header {
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
 .language-toggle {
@@ -62,7 +62,7 @@ main {
 
 .site-title-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: clamp(18px, 3vw, 38px);
   flex-wrap: wrap;
@@ -142,7 +142,7 @@ main {
 
 h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.3rem);
+  font-size: 2.4rem;
   line-height: 1;
 }
 
@@ -1799,6 +1799,15 @@ footer {
   margin-top: 0;
   padding: .4rem .55rem;
   font-size: .72rem;
+}
+
+.data-status-actions .data-status-icon-button {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 .data-status-actions .manual-download-link,

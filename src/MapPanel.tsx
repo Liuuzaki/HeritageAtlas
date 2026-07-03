@@ -57,6 +57,7 @@ type Props = {
   places: Place[]
   dataKey: string
   colorMetric: ColorMetric
+  wikiPopularityLabel: string
   focusRequest: MapFocusRequest | null
   onOpenPlace: (qid: string) => void
   onViewportChanged: (bounds: MapBounds) => void
@@ -151,7 +152,7 @@ function updateLegend(element: HTMLDivElement, config: MetricConfig): void {
   `
 }
 
-function popupHtml(place: Place, metric: ColorMetric): string {
+function popupHtml(place: Place, metric: ColorMetric, wikiPopularityLabel: string): string {
   const translations = [place.labelEn, place.labelZh].filter(Boolean).join(' · ')
   const designations = place.designations.map((item) => `<span>${escapeHtml(item)}</span>`).join('')
   const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia popularity`
@@ -169,7 +170,7 @@ function popupHtml(place: Place, metric: ColorMetric): string {
         ${designations ? `<span class="map-card-designations">${designations}</span>` : ''}
         <span class="map-card-meta">
           <span class="map-card-popularity" title="${escapeHtml(popularityTitle)}">
-            <span>Wiki popularity</span>
+            <span>${escapeHtml(wikiPopularityLabel)}</span>
             <strong>${wikipediaPopularityScore(place.wikipediaSitelinksCount)}</strong>
           </span>
           ${metric === 'views'
@@ -195,7 +196,7 @@ function toBounds(map: L.Map): MapBounds {
   }
 }
 
-export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPlace, onViewportChanged }: Props) {
+export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, focusRequest, onOpenPlace, onViewportChanged }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const markerLayerRef = useRef<L.LayerGroup | null>(null)
@@ -203,7 +204,7 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
   const metricRef = useRef<ColorMetric>(colorMetric)
   const markerLayersRef = useRef(new Map<string, L.Layer>())
   const pendingFocusRef = useRef<MapFocusRequest | null>(null)
-  const dataKeyRef = useRef(dataKey)
+  const dataKeyRef = useRef(`${dataKey}\u0000${wikiPopularityLabel}`)
   const onOpenRef = useRef(onOpenPlace)
   const onViewportRef = useRef(onViewportChanged)
 
@@ -297,11 +298,12 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
     const map = mapRef.current
     if (!markers || !map) return
 
-    const dataChanged = dataKeyRef.current !== dataKey
+    const localizedDataKey = `${dataKey}\u0000${wikiPopularityLabel}`
+    const dataChanged = dataKeyRef.current !== localizedDataKey
     if (dataChanged) {
       markers.clearLayers()
       markerLayersRef.current.clear()
-      dataKeyRef.current = dataKey
+      dataKeyRef.current = localizedDataKey
     }
 
     const showsIndividualMarkers = map.getZoom() >= INDIVIDUAL_MARKER_ZOOM
@@ -357,7 +359,7 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
         fillColor: metricColor(value, config.max),
         fillOpacity: 0.95,
       })
-      marker.bindTooltip(() => popupHtml(place, colorMetric), {
+      marker.bindTooltip(() => popupHtml(place, colorMetric, wikiPopularityLabel), {
         className: 'place-map-tooltip',
         direction: 'top',
         offset: [0, -10],
@@ -372,7 +374,7 @@ export function MapPanel({ places, dataKey, colorMetric, focusRequest, onOpenPla
       newLayers.forEach((layer) => markers.addLayer(layer))
     }
     revealFocusedMarker()
-  }, [places, dataKey, colorMetric, revealFocusedMarker])
+  }, [places, dataKey, colorMetric, wikiPopularityLabel, revealFocusedMarker])
 
   return <div ref={containerRef} className="map" aria-label="Interactive heritage map" />
 }
