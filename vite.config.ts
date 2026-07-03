@@ -9,18 +9,8 @@ const isUserSite = repository?.endsWith('.github.io')
 const releaseDatasetUrl = 'https://github.com/Liuuzaki/HeritageAtlas/releases/latest/download/atlas-sample.zip'
 
 function startReleaseDownload() {
-  if (process.platform === 'win32') {
-    const script = [
-      `$temporary = [IO.Path]::GetTempFileName()`,
-      `try {`,
-      `  Invoke-WebRequest -UseBasicParsing -Uri '${releaseDatasetUrl}' -OutFile $temporary`,
-      `  $stream = [IO.File]::OpenRead($temporary)`,
-      `  try { $stream.CopyTo([Console]::OpenStandardOutput()) } finally { $stream.Dispose() }`,
-      `} finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }`,
-    ].join('; ')
-    return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script])
-  }
-  return spawn('curl', ['--fail', '--location', '--silent', '--show-error', releaseDatasetUrl])
+  const executable = process.platform === 'win32' ? 'curl.exe' : 'curl'
+  return spawn(executable, ['--fail', '--location', '--silent', '--show-error', '--no-buffer', releaseDatasetUrl])
 }
 
 function releaseDatasetPlugin(): Plugin {

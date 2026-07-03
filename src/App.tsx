@@ -16,6 +16,7 @@ type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 
 const PAGE_SIZE = 20
+const DATASET_RELEASES_URL = 'https://github.com/Liuuzaki/HeritageAtlas/releases'
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], instanceOf: [], architecturalStyles: [] }
 const EMPTY_FILTERS: PlaceFilters = {
   query: '',
@@ -911,7 +912,7 @@ type ExploreProps = {
   onInstallLatest: () => void
   onCheckUpdates: () => void
   onDelete: () => void
-  updating: boolean
+  progress: InstallProgress
   updateNote: string
   localMatchesLatest: boolean | null
 }
@@ -1194,7 +1195,7 @@ function TimespanFilter({ filters, onChange }: {
   )
 }
 
-function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, updating, updateNote, localMatchesLatest }: ExploreProps) {
+function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, progress, updateNote, localMatchesLatest }: ExploreProps) {
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
@@ -1214,6 +1215,15 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const from = result.total ? page * PAGE_SIZE + 1 : 0
   const to = Math.min((page + 1) * PAGE_SIZE, result.total)
   const updateAvailable = Boolean(manifest && localMatchesLatest === false)
+  const updating = progress.stage !== 'idle'
+  const updatePercent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
+  const updateProgressLabel = progress.stage === 'downloading'
+    ? progress.received > 0 ? 'Downloading update…' : 'Connecting to download…'
+    : progress.stage === 'verifying'
+      ? 'Verifying update…'
+      : progress.stage === 'extracting'
+        ? 'Extracting update…'
+        : 'Updating local data…'
 
   useEffect(() => {
     setPageInput(String(page + 1))
@@ -1254,15 +1264,17 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
     <main>
       <header className="site-header">
         <div>
-          <p className="eyebrow">Installed local atlas</p>
           <h1>Heritage Atlas</h1>
-          <p>All filtering, sorting, and pagination run against the database saved in this browser. Only thumbnails and map tiles need normal network requests.</p>
         </div>
         <div className="data-status">
           <strong>{installed.name}</strong>
           <span>{stats.placeCount.toLocaleString()} places · {formatBytes(installed.bytes)} · {installed.version}</span>
-          <span>Stored locally in this browser</span>
           {updateAvailable ? <button className="small-button" onClick={onInstallLatest} disabled={updating}>{updating ? 'Updating…' : 'Update'}</button> : <button className="small-button" onClick={onCheckUpdates} disabled={updating}>{updating ? 'Checking…' : 'Check for updates'}</button>}
+          <a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">Download manually</a>
+          {updating && <div className="data-status-progress" role="status" aria-live="polite">
+            <span>{updateProgressLabel}{updatePercent !== undefined ? ` ${updatePercent}%` : ''}</span>
+            <progress aria-label={updateProgressLabel} value={progress.total && progress.received > 0 ? progress.received : undefined} max={progress.total} />
+          </div>}
           {updateNote && <span className="update-note">{updateNote}</span>}
           <button className="text-button" onClick={onDelete} disabled={updating}>Delete local data</button>
         </div>
@@ -1309,10 +1321,10 @@ type InstallerProps = {
 
 function Installer({ manifest, current, progress, error, notice, onDownload, onImport }: InstallerProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const percent = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
+  const percent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const working = progress.stage !== 'idle'
   const progressLabel = progress.stage === 'downloading'
-    ? 'Downloading atlas…'
+    ? progress.received > 0 ? 'Downloading atlas…' : 'Connecting to download…'
     : progress.stage === 'extracting'
       ? 'Extracting database…'
       : progress.stage === 'verifying'
@@ -1329,19 +1341,21 @@ function Installer({ manifest, current, progress, error, notice, onDownload, onI
     <main className="installer-page">
       <section className="installer-card">
         <p className="eyebrow">Offline-first heritage database</p>
-        <h1>Install the Heritage Atlas</h1>
-        <p>Download the catalogue once. It is saved privately in this browser and reopened automatically on later visits. Searches, filters, sorting, and 20-result pages then run locally.</p>
-        {manifest && <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Download</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}</dl>}
+        <h1>Get the dataset</h1>
+        <p>The dataset is distributed through GitHub. You need to download it on your first visit. 
+          This helps reduce bandwidth usage and improves query performance.</p>
+        {manifest
+          ? <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Size</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}<div><dt>Alternative</dt><dd><a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">Download manually</a></dd></div></dl>
+          : <div className="dataset-facts dataset-facts-loading" role="status" aria-live="polite"><span className="loading-dot" aria-hidden="true" />Loading dataset details…</div>}
         {current && <p className="notice">A previous dataset is available locally ({current.name}, {current.version}), but it could not be opened yet.</p>}
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="notice error">{error}</p>}
-        {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</span><progress value={progress.received} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
+        {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{progress.stage === 'downloading' && progress.received === 0 ? 'Waiting for the first bytes…' : <>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</>}</span><progress value={progress.received > 0 ? progress.received : undefined} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
         <div className="installer-actions">
           <button className="primary-button" onClick={onDownload} disabled={!manifest || working}>{working ? 'Working…' : 'Download dataset'}</button>
-          <button onClick={() => inputRef.current?.click()} disabled={working}>Import a .sqlite file</button>
+          <button onClick={() => inputRef.current?.click()} disabled={working}>Import a sqlite file</button>
           <input ref={inputRef} type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3,application/x-sqlite3" hidden onChange={chooseFile} />
         </div>
-        <p className="installer-note">Use <strong>Import</strong> only for a database file you already downloaded. Once imported, you will not have to select it again unless you clear browser data.</p>
       </section>
     </main>
   )
@@ -1505,7 +1519,7 @@ export default function App() {
   const closePlace = () => { window.location.hash = '/' }
 
   return <>
-    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} updating={progress.stage !== 'idle'} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
+    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} progress={progress} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
     {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePlace} />}
   </>
 }
