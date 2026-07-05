@@ -91,7 +91,8 @@ function localizedCountryName(country: string, language: SiteLanguage): string {
 }
 
 function normalizedMetricValue(value: number, max: number): number {
-  return Math.min(1, Math.log10(Math.max(0, value)) / Math.log10(max))
+  if (!Number.isFinite(value) || !Number.isFinite(max) || value <= 0 || max <= 1) return 0
+  return Math.min(1, Math.max(0, Math.log10(value) / Math.log10(max)))
 }
 
 function metricColor(value: number, max: number): string {
@@ -451,6 +452,7 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, la
       map.remove()
       mapRef.current = null
       markerLayerRef.current = null
+      markerLayersRef.current.clear()
       legendElementRef.current = null
     }
   }, [revealFocusedMarker])
