@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { countryFlags } from './countryFlags'
+import {
+  COUNTRY_CLUSTER_CONTENT,
+  countryClusterContent,
+  countryClusterKey,
+  type CountryClusterContent,
+} from './countryClusters'
+import { countryFlags, localizedCountryLabel } from './countryFlags'
 import { formatViews } from './data'
 import { thumbnailImageUrl } from './images'
-import { INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
-import type { MapBounds, Place } from './types'
+import { COUNTRY_CLUSTER_MAX_ZOOM, INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
+import type { MapBounds, Place, SiteLanguage } from './types'
 
 // Suitable for local development and a very small public demo. Before public
 // launch, change this to a tile provider whose terms cover your traffic level.
@@ -58,6 +64,7 @@ type Props = {
   dataKey: string
   colorMetric: ColorMetric
   wikiPopularityLabel: string
+  language: SiteLanguage
   focusRequest: MapFocusRequest | null
   onOpenPlace: (qid: string) => void
   onViewportChanged: (bounds: MapBounds) => void
@@ -77,6 +84,10 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
+}
+
+function localizedCountryName(country: string, language: SiteLanguage): string {
+  return localizedCountryLabel(country, language).split(' | ')[0] ?? country
 }
 
 function normalizedMetricValue(value: number, max: number): number {
@@ -126,19 +137,181 @@ function countMarkerIcon(pointCount: number, highestValue: number, config: Metri
   })
 }
 
-function countryMarkerIcon(countryLabel: string, pointCount: number, highestValue: number, config: MetricConfig): L.DivIcon | undefined {
+function countryMarkerIcon(
+  countryLabel: string,
+  pointCount: number,
+  highestValue: number,
+  config: MetricConfig,
+  language: SiteLanguage,
+  placeholder = false,
+): L.DivIcon | undefined {
   const flag = countryFlags(countryLabel)[0]
   if (!flag) return undefined
 
-  const formattedCount = pointCount.toLocaleString()
-  const color = metricColor(highestValue, config.max)
-  const textColor = metricTextColor(highestValue, config.max)
-  const title = `${flag.name}: ${formattedCount} places`
+  const formattedCount = placeholder ? (language === 'zh' ? '暂无数据' : 'No data') : pointCount.toLocaleString()
+  const color = placeholder ? '#64748b' : metricColor(highestValue, config.max)
+  const textColor = placeholder ? '#ffffff' : metricTextColor(highestValue, config.max)
+  const countryName = localizedCountryName(countryLabel, language)
+  const title = placeholder
+    ? (language === 'zh' ? `${countryName}：暂无数据` : `${countryName}: no data yet`)
+    : (language === 'zh' ? `${countryName}：${formattedCount} 个地点` : `${countryName}: ${formattedCount} places`)
   return L.divIcon({
-    className: 'country-flag-cluster',
+    className: `country-flag-cluster${placeholder ? ' country-flag-cluster-placeholder' : ''}`,
     html: `<span style="--cluster-color: ${color}; --cluster-text-color: ${textColor}" title="${escapeHtml(title)}"><img src="https://flagcdn.com/${flag.code.toLowerCase()}.svg" alt="" loading="lazy" referrerpolicy="no-referrer"><strong>${formattedCount}</strong></span>`,
     iconSize: L.point(COUNTRY_ICON_WIDTH, COUNTRY_ICON_HEIGHT),
     iconAnchor: L.point(COUNTRY_ICON_WIDTH / 2, COUNTRY_FLAG_CENTER_Y),
+  })
+}
+
+function markdownInlineHtml(value: string): string {
+  const tokens = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*/g
+  let html = ''
+  let cursor = 0
+
+  for (const match of value.matchAll(tokens)) {
+    const index = match.index ?? 0
+    html += escapeHtml(value.slice(cursor, index))
+    if (match[1] && match[2]) {
+      html += `<a href="${escapeHtml(match[2])}" target="_blank" rel="noreferrer">${escapeHtml(match[1])}</a>`
+    } else if (match[3]) {
+      html += `<strong>${escapeHtml(match[3])}</strong>`
+    } else if (match[4]) {
+      html += `<code>${escapeHtml(match[4])}</code>`
+    } else if (match[5]) {
+      html += `<em>${escapeHtml(match[5])}</em>`
+    }
+    cursor = index + match[0].length
+  }
+
+  return html + escapeHtml(value.slice(cursor))
+}
+
+function markdownToHtml(source: string): string {
+  const lines = source
+    .replace(/<!--[^]*?-->/g, '')
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .split('\n')
+  if (lines.length === 1 && !lines[0]) return ''
+
+  const blocks: string[] = []
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index]?.trim() ?? ''
+    if (!line) {
+      index += 1
+      continue
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/)
+    if (heading?.[1] && heading[2]) {
+      const level = heading[1].length + 2
+      blocks.push(`<h${level}>${markdownInlineHtml(heading[2])}</h${level}>`)
+      index += 1
+      continue
+    }
+
+    const unordered = line.match(/^[-*]\s+(.+)$/)
+    if (unordered) {
+      const items: string[] = []
+      while (index < lines.length) {
+        const item = lines[index]?.trim().match(/^[-*]\s+(.+)$/)
+        if (!item?.[1]) break
+        items.push(`<li>${markdownInlineHtml(item[1])}</li>`)
+        index += 1
+      }
+      blocks.push(`<ul>${items.join('')}</ul>`)
+      continue
+    }
+
+    const ordered = line.match(/^\d+\.\s+(.+)$/)
+    if (ordered) {
+      const items: string[] = []
+      while (index < lines.length) {
+        const item = lines[index]?.trim().match(/^\d+\.\s+(.+)$/)
+        if (!item?.[1]) break
+        items.push(`<li>${markdownInlineHtml(item[1])}</li>`)
+        index += 1
+      }
+      blocks.push(`<ol>${items.join('')}</ol>`)
+      continue
+    }
+
+    const paragraph: string[] = []
+    while (index < lines.length) {
+      const value = lines[index]?.trim() ?? ''
+      if (!value || /^(#{1,3})\s+/.test(value) || /^[-*]\s+/.test(value) || /^\d+\.\s+/.test(value)) break
+      paragraph.push(value)
+      index += 1
+    }
+    blocks.push(`<p>${markdownInlineHtml(paragraph.join(' '))}</p>`)
+  }
+
+  return blocks.join('')
+}
+
+function countryPopupHtml(
+  country: string,
+  pointCount: number,
+  placeholder: boolean,
+  language: SiteLanguage,
+  content?: CountryClusterContent,
+): string {
+  const flag = countryFlags(country)[0]
+  const markdown = content?.markdown ? markdownToHtml(content.markdown) : ''
+  const countryName = localizedCountryName(country, language)
+  const subtitle = placeholder
+    ? (language === 'zh' ? '暂无数据' : 'Coverage placeholder')
+    : (language === 'zh' ? `${pointCount.toLocaleString()} 个地点` : `${pointCount.toLocaleString()} places`)
+
+  return `
+    <article class="country-map-card">
+      <header>
+        ${flag ? `<img src="https://flagcdn.com/${flag.code.toLowerCase()}.svg" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
+        <span><strong>${escapeHtml(countryName)}</strong><small>${subtitle}</small></span>
+      </header>
+      ${markdown ? `<section class="country-map-card-markdown">${markdown}</section>` : ''}
+    </article>
+  `
+}
+
+function bindCountryPopup(
+  marker: L.Marker,
+  country: string,
+  pointCount: number,
+  placeholder: boolean,
+  language: SiteLanguage,
+  content?: CountryClusterContent,
+): void {
+  let closeTimer: number | undefined
+  let wiredElement: HTMLElement | null = null
+  const cancelClose = () => {
+    if (closeTimer !== undefined) window.clearTimeout(closeTimer)
+    closeTimer = undefined
+  }
+  const closeSoon = () => {
+    cancelClose()
+    closeTimer = window.setTimeout(() => marker.closePopup(), 140)
+  }
+  const open = () => {
+    cancelClose()
+    marker.openPopup()
+  }
+
+  marker.bindPopup(countryPopupHtml(country, pointCount, placeholder, language, content), {
+    className: 'country-cluster-popup',
+    closeButton: false,
+    autoPan: false,
+    offset: L.point(0, -22),
+  })
+  marker.on('mouseover', open)
+  marker.on('mouseout', closeSoon)
+  marker.on('popupopen', () => {
+    const element = marker.getPopup()?.getElement() ?? null
+    if (!element || element === wiredElement) return
+    wiredElement = element
+    element.addEventListener('mouseenter', cancelClose)
+    element.addEventListener('mouseleave', closeSoon)
   })
 }
 
@@ -196,7 +369,7 @@ function toBounds(map: L.Map): MapBounds {
   }
 }
 
-export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, focusRequest, onOpenPlace, onViewportChanged }: Props) {
+export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, language, focusRequest, onOpenPlace, onViewportChanged }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const markerLayerRef = useRef<L.LayerGroup | null>(null)
@@ -204,7 +377,7 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
   const metricRef = useRef<ColorMetric>(colorMetric)
   const markerLayersRef = useRef(new Map<string, L.Layer>())
   const pendingFocusRef = useRef<MapFocusRequest | null>(null)
-  const dataKeyRef = useRef(`${dataKey}\u0000${wikiPopularityLabel}`)
+  const dataKeyRef = useRef(`${dataKey}\u0000${wikiPopularityLabel}\u0000${language}`)
   const onOpenRef = useRef(onOpenPlace)
   const onViewportRef = useRef(onViewportChanged)
 
@@ -298,7 +471,7 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
     const map = mapRef.current
     if (!markers || !map) return
 
-    const localizedDataKey = `${dataKey}\u0000${wikiPopularityLabel}`
+    const localizedDataKey = `${dataKey}\u0000${wikiPopularityLabel}\u0000${language}`
     const dataChanged = dataKeyRef.current !== localizedDataKey
     if (dataChanged) {
       markers.clearLayers()
@@ -307,6 +480,17 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
     }
 
     const showsIndividualMarkers = map.getZoom() >= INDIVIDUAL_MARKER_ZOOM
+    const showsCountryClusters = map.getZoom() <= COUNTRY_CLUSTER_MAX_ZOOM
+    const realCountries = new Set(
+      places
+        .filter((place) => place.mapAggregate && place.countryLabelEn)
+        .map((place) => countryClusterKey(place.countryLabelEn!)),
+    )
+    const placeholders = showsCountryClusters
+      ? COUNTRY_CLUSTER_CONTENT.filter((content) => (
+          content.placeholderCoordinates && !realCountries.has(countryClusterKey(content.country))
+        ))
+      : []
     const visibleQids = new Set<string>()
     for (const place of places) {
       if ((place.mapAggregate || showsIndividualMarkers)
@@ -314,6 +498,7 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
         visibleQids.add(place.qid)
       }
     }
+    for (const content of placeholders) visibleQids.add(`map-country-placeholder-${countryClusterKey(content.country)}`)
     for (const [qid, layer] of markerLayersRef.current) {
       if (visibleQids.has(qid)) continue
       markers.removeLayer(layer)
@@ -334,8 +519,9 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
       const value = metricValue(place, colorMetric)
 
       if (place.mapAggregate) {
+        const countryContent = place.countryLabelEn ? countryClusterContent(place.countryLabelEn, language) : undefined
         const icon = place.countryLabelEn
-          ? countryMarkerIcon(place.countryLabelEn, pointCount, value, config)
+          ? countryMarkerIcon(place.countryLabelEn, pointCount, value, config, language)
           : undefined
         const marker = L.marker([place.latitude, place.longitude], {
           icon: icon ?? countMarkerIcon(pointCount, value, config),
@@ -347,6 +533,7 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
           const map = mapRef.current
           if (map) map.setView(marker.getLatLng(), Math.min(map.getZoom() + 2, map.getMaxZoom()))
         })
+        if (place.countryLabelEn) bindCountryPopup(marker, place.countryLabelEn, pointCount, false, language, countryContent)
         markerLayersRef.current.set(place.qid, marker)
         newLayers.push(marker)
         continue
@@ -370,11 +557,32 @@ export function MapPanel({ places, dataKey, colorMetric, wikiPopularityLabel, fo
       newLayers.push(marker)
     }
 
+    for (const content of placeholders) {
+      const coordinates = content.placeholderCoordinates!
+      const qid = `map-country-placeholder-${countryClusterKey(content.country)}`
+      if (markerLayersRef.current.has(qid)) continue
+      const icon = countryMarkerIcon(content.country, 0, 0, config, language, true)
+      if (!icon) continue
+      const marker = L.marker([coordinates.latitude, coordinates.longitude], {
+        icon,
+        zIndexOffset: -1,
+        riseOnHover: true,
+        riseOffset: 100_000,
+      })
+      bindCountryPopup(marker, content.country, 0, true, language, countryClusterContent(content.country, language))
+      marker.on('click', () => {
+        const currentMap = mapRef.current
+        if (currentMap) currentMap.setView(marker.getLatLng(), Math.min(currentMap.getZoom() + 2, currentMap.getMaxZoom()))
+      })
+      markerLayersRef.current.set(qid, marker)
+      newLayers.push(marker)
+    }
+
     if (newLayers.length) {
       newLayers.forEach((layer) => markers.addLayer(layer))
     }
     revealFocusedMarker()
-  }, [places, dataKey, colorMetric, wikiPopularityLabel, revealFocusedMarker])
+  }, [places, dataKey, colorMetric, wikiPopularityLabel, language, revealFocusedMarker])
 
   return <div ref={containerRef} className="map" aria-label="Interactive heritage map" />
 }

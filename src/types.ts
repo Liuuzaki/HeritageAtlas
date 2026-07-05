@@ -1,3 +1,5 @@
+export type SiteLanguage = 'en' | 'zh'
+
 export type Place = {
   qid: string
   labelNative: string
@@ -54,7 +56,7 @@ export type StoredAtlas = {
 
 export type PlaceFilters = {
   query: string
-  country: string
+  country: string[]
   instanceOf: string[]
   architecturalStyles: string[]
   timespanEnabled: boolean
@@ -87,7 +89,7 @@ export type MapBounds = {
 
 export type AtlasStats = {
   placeCount: number
-  countries: string[]
+  countries: TagFilterOption[]
   instanceOf: TagFilterOption[]
   architecturalStyles: TagFilterOption[]
 }

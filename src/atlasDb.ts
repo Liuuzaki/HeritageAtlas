@@ -22,7 +22,7 @@ function snapUp(value: number, origin: number, cellSize: number): number {
 function countryClusterCacheKey(filters: PlaceFilters): string {
   return JSON.stringify([
     filters.query.trim(),
-    filters.country,
+    [...filters.country].sort(),
     [...filters.instanceOf].sort(),
     [...filters.architecturalStyles].sort(),
     filters.timespanEnabled,
@@ -160,9 +160,9 @@ function filtersToWhere(filters: PlaceFilters, bounds?: MapBounds): WhereClause 
     params.push(like)
   }
 
-  if (filters.country) {
-    where.push('p.country_label_en = ?')
-    params.push(filters.country)
+  if (filters.country.length) {
+    where.push(`p.country_label_en IN (${filters.country.map(() => '?').join(', ')})`)
+    params.push(...filters.country)
   }
   const addTagFilters = (category: string, values: string[]) => {
     if (!values.length) return
@@ -332,7 +332,14 @@ export class AtlasDatabase {
   getStats(): AtlasStats {
     if (this.statsCache) return this.statsCache
     const count = firstResult(this.database, 'SELECT COUNT(*) AS count FROM places')[0]
-    const countries = firstResult(this.database, "SELECT DISTINCT country_label_en AS country FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL ORDER BY country_label_en COLLATE NOCASE LIMIT 500").map((row) => asString(row.country))
+    const countries = firstResult(
+      this.database,
+      "SELECT country_label_en AS value, COUNT(*) AS count FROM places WHERE country_label_en <> '' AND country_label_en IS NOT NULL GROUP BY country_label_en ORDER BY country_label_en COLLATE NOCASE LIMIT 500",
+    ).map((row) => ({
+      label: asString(row.value),
+      value: asString(row.value),
+      count: asNumber(row.count),
+    }))
     const tagRows = firstResult(this.database, 'SELECT wikidata_qid AS qid, instance_of, architectural_style_label_en FROM places')
     this.ensureRuntimeIndexes(tagRows)
     this.statsCache = {
@@ -344,7 +351,7 @@ export class AtlasDatabase {
     return this.statsCache
   }
 
-  getTagFilterStats(filters: PlaceFilters): Pick<AtlasStats, 'instanceOf' | 'architecturalStyles'> {
+  getTagFilterStats(filters: PlaceFilters): Pick<AtlasStats, 'countries' | 'instanceOf' | 'architecturalStyles'> {
     this.ensureRuntimeIndexes()
     const baseStats = this.getStats()
     const optionsWithFilteredCounts = (
@@ -374,6 +381,26 @@ export class AtlasDatabase {
     }
 
     return {
+      countries: (() => {
+        const where = filtersToWhere({ ...filters, country: [] })
+        const rows = firstResult(
+          this.database,
+          `WITH matched AS (
+             SELECT p.country_label_en
+             FROM places p ${where.sql}
+           )
+           SELECT country_label_en AS value, COUNT(*) AS count
+           FROM matched
+           WHERE country_label_en IS NOT NULL AND country_label_en <> ''
+           GROUP BY country_label_en`,
+          where.params,
+        )
+        const counts = new Map(rows.map((row) => [asString(row.value), asNumber(row.count)]))
+        return baseStats.countries.map((option) => ({
+          ...option,
+          count: counts.get(option.value) ?? 0,
+        }))
+      })(),
       instanceOf: optionsWithFilteredCounts(
         'instance',
         baseStats.instanceOf,

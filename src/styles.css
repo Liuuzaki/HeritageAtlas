@@ -654,6 +654,105 @@ h1 {
   margin: 10px;
 }
 
+.country-cluster-popup .leaflet-popup-content-wrapper {
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, .45);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, .24);
+}
+
+.country-cluster-popup .leaflet-popup-content {
+  width: 260px !important;
+  margin: 0;
+}
+
+.country-map-card {
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  text-align: left;
+}
+
+.country-map-card header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 13px 10px;
+  background: linear-gradient(135deg, #f8fafc, #eef6ff);
+}
+
+.country-map-card header img {
+  width: 38px;
+  height: 28px;
+  border: 1px solid rgba(15, 23, 42, .14);
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, .16);
+}
+
+.country-map-card header span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.country-map-card header strong {
+  color: #18212f;
+  font-size: .92rem;
+}
+
+.country-map-card header small {
+  color: #64748b;
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.country-map-card-markdown {
+  padding: 11px 13px;
+  font-size: .76rem;
+  line-height: 1.45;
+}
+
+.country-map-card-markdown > :first-child {
+  margin-top: 0;
+}
+
+.country-map-card-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.country-map-card-markdown h3,
+.country-map-card-markdown h4,
+.country-map-card-markdown h5 {
+  margin: .7rem 0 .3rem;
+  color: #18212f;
+  font-size: .82rem;
+  line-height: 1.25;
+}
+
+.country-map-card-markdown p {
+  margin: 0 0 .6rem;
+}
+
+.country-map-card-markdown ul,
+.country-map-card-markdown ol {
+  margin: 0 0 .6rem;
+  padding-left: 1.2rem;
+}
+
+.country-map-card-markdown a {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.country-map-card-markdown code {
+  padding: .08rem .22rem;
+  border-radius: 3px;
+  background: #eef2f7;
+  color: #334155;
+  font-size: .7rem;
+}
+
 .place-map-tooltip {
   padding: 0;
   border: 0;
@@ -907,6 +1006,16 @@ h1 {
   text-align: center;
   white-space: nowrap;
   box-shadow: 0 1px 5px rgba(15, 23, 42, .35);
+}
+
+.country-flag-cluster-placeholder img {
+  filter: saturate(.58);
+  opacity: .9;
+}
+
+.country-flag-cluster-placeholder strong {
+  min-width: 42px;
+  font-size: .55rem;
 }
 
 .place-list-panel {

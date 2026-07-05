@@ -3,20 +3,18 @@ import { ChevronDown, Download, HelpCircle, Languages, LocateFixed, RefreshCw, T
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
-import { countryFlags } from './countryFlags'
+import { countryFlags, localizedCountryLabel } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
 import { isArticleSlug, SITE_ARTICLES_BY_SLUG, type ArticleSlug } from './content/articles'
-import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, StoredAtlasMetadata, TagFilterOption } from './types'
+import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, SiteLanguage, StoredAtlasMetadata, TagFilterOption } from './types'
 
 type Route = { kind: 'home' } | { kind: 'place'; qid: string } | { kind: 'article'; slug: ArticleSlug }
 type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifying' | 'installing'; received: number; total?: number }
 type AtlasManifestConfig = { releaseApiUrl?: unknown; assetName?: unknown; archiveFormat?: unknown }
 type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
-type SiteLanguage = 'en' | 'zh'
-
 type LanguageContextValue = {
   language: SiteLanguage
   setLanguage: (language: SiteLanguage) => void
@@ -66,7 +64,7 @@ const DATASET_RELEASES_URL = 'https://github.com/Liuuzaki/HeritageAtlas/releases
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], instanceOf: [], architecturalStyles: [] }
 const EMPTY_FILTERS: PlaceFilters = {
   query: '',
-  country: '',
+  country: [],
   instanceOf: [],
   architecturalStyles: [],
   timespanEnabled: false,
@@ -1075,17 +1073,19 @@ type ExploreProps = {
   localMatchesLatest: boolean | null
 }
 
-type TagFilterKey = 'instanceOf' | 'architecturalStyles'
+type TagFilterKey = 'country' | 'instanceOf' | 'architecturalStyles'
 const TAG_FILTER_ROW_HEIGHT = 34
 const TAG_FILTER_MAX_HEIGHT = 460
 const TAG_FILTER_OVERSCAN = 4
 
-function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
+function TagCategoryDropdown({ filterKey, label, triggerLabel = label, options, filters, onChange, showHelp = true }: {
   filterKey: TagFilterKey
   label: string
+  triggerLabel?: string
   options: TagFilterOption[]
   filters: PlaceFilters
   onChange: (patch: Partial<PlaceFilters>) => void
+  showHelp?: boolean
 }) {
   const { language } = useLanguage()
   const [open, setOpen] = useState(false)
@@ -1166,7 +1166,7 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
         aria-expanded={open}
         onClick={() => open ? close() : setOpen(true)}
       >
-        <span>{label}</span>
+        <span>{triggerLabel}</span>
         {selected.length > 0 && <span className="tag-filter-count">{selected.length}</span>}
         <ChevronDown size={17} aria-hidden="true" />
       </button>
@@ -1205,7 +1205,7 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
                 setSearch(event.target.value)
                 resetListScroll()
               }}
-              placeholder={`Search ${label.toLocaleLowerCase()}…`}
+              placeholder={uiText(language, `Search ${label.toLocaleLowerCase()}…`, `搜索${label}…`)}
               autoFocus
             />
           </label>
@@ -1237,12 +1237,14 @@ function TagCategoryDropdown({ filterKey, label, options, filters, onChange }: {
                           <span className="tag-filter-total">({option.count.toLocaleString()})</span>
                         </span>
                       </label>
-                      <TagHelp tag={{ label: option.label, qid: option.qid }} placement={tooltipAbove ? 'above' : 'below'} />
+                      {showHelp && <TagHelp tag={{ label: option.label, qid: option.qid }} placement={tooltipAbove ? 'above' : 'below'} />}
                     </div>
                   )
                 })}
               </div>
-            ) : <p className="tag-filter-empty">{options.length ? 'No matching tags' : 'No tags recorded'}</p>}
+            ) : <p className="tag-filter-empty">{options.length
+              ? uiText(language, 'No matching options', '没有匹配选项')
+              : uiText(language, 'No options recorded', '暂无选项')}</p>}
           </div>
         </div>
       )}
@@ -1263,6 +1265,28 @@ function TagFilterDropdown({ filters, stats, onChange }: {
         <TagCategoryDropdown filterKey="instanceOf" label={uiText(language, 'Instance of', '类型')} options={stats.instanceOf} filters={filters} onChange={onChange} />
         <TagCategoryDropdown filterKey="architecturalStyles" label={uiText(language, 'Architectural style', '建筑风格')} options={stats.architecturalStyles} filters={filters} onChange={onChange} />
       </div>
+    </div>
+  )
+}
+
+function CountryFilterDropdown({ filters, options, onChange }: {
+  filters: PlaceFilters
+  options: TagFilterOption[]
+  onChange: (patch: Partial<PlaceFilters>) => void
+}) {
+  const { language } = useLanguage()
+  return (
+    <div className="filter-field tag-filter country-filter">
+      <span className="filter-label">{uiText(language, 'Country', '国家/地区')}</span>
+      <TagCategoryDropdown
+        filterKey="country"
+        label={uiText(language, 'Countries', '国家/地区')}
+        triggerLabel={uiText(language, 'Select countries', '选择国家/地区')}
+        options={options}
+        filters={filters}
+        onChange={onChange}
+        showHelp={false}
+      />
     </div>
   )
 }
@@ -1373,6 +1397,10 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
   const mapPlaces = useMemo(() => bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds])
   const mapDataKey = JSON.stringify(filters)
+  const countryOptions = useMemo(() => tagFilterStats.countries
+    .map((option) => ({ ...option, label: localizedCountryLabel(option.value, language) }))
+    .sort((left, right) => left.label.localeCompare(right.label, language === 'zh' ? 'zh-CN' : 'en')),
+  [tagFilterStats.countries, language])
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
   const updateAvailable = Boolean(manifest && localMatchesLatest === false)
   const updating = progress.stage !== 'idle'
@@ -1494,14 +1522,14 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       <section className="controls" aria-label={uiText(language, 'Place filters', '地点筛选')}>
         <label>{uiText(language, 'Search', '搜索')}<input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} onBlur={applySearch} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applySearch() } }} placeholder={uiText(language, 'Name, country, style, designation…', '名称、国家/地区、风格、遗产认定…')} /></label>
         <TagFilterDropdown filters={filters} stats={{ ...stats, ...tagFilterStats }} onChange={updateFilters} />
-        <label>{uiText(language, 'Country', '国家/地区')}<select value={filters.country} onChange={(event) => updateFilters({ country: event.target.value })}><option value="">{uiText(language, 'All countries', '所有国家/地区')}</option>{stats.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <CountryFilterDropdown filters={filters} options={countryOptions} onChange={updateFilters} />
         <label>{uiText(language, 'Sort', '排序')}<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">{uiText(language, 'Wikipedia popularity', '维基百科热度')}</option><option value="views">TODO: Wikipedia pageview</option><option value="name">{uiText(language, 'Name', '名称')}</option></select></label>
         <TimespanFilter filters={filters} onChange={updateFilters} />
         <p className="results-summary controls-results-summary" role="status" aria-live="polite">{result.total.toLocaleString()} {uiText(language, 'places match.', '个地点符合')}</p>
       </section>
 
       <section className="atlas-layout">
-        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} wikiPopularityLabel={uiText(language, 'Wiki popularity', 'Wiki 热度')} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
+        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} wikiPopularityLabel={uiText(language, 'Wiki popularity', 'Wiki 热度')} language={language} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
         <aside className="place-list-panel" aria-label="Heritage place results">
           <div ref={placeListRef} className="place-list">
             {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}

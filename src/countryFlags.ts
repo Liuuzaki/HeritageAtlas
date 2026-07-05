@@ -1,3 +1,5 @@
+import type { SiteLanguage } from './types'
+
 export interface CountryFlag {
   code: string
   name: string
@@ -20,6 +22,7 @@ const COUNTRY_ALIASES: Record<string, string> = {
   'united states': 'US',
   'russia': 'RU',
   'serbia': 'RS',
+  'turkey': 'TR',
 }
 
 function buildCountryCodes() {
@@ -55,4 +58,12 @@ export function countryFlags(countryLabel?: string): CountryFlag[] {
     flags.push({ code, name })
   }
   return flags
+}
+
+export function localizedCountryLabel(countryLabel: string, language: SiteLanguage): string {
+  const flags = countryFlags(countryLabel)
+  if (!flags.length || typeof Intl.DisplayNames !== 'function') return countryLabel
+
+  const names = new Intl.DisplayNames([language === 'zh' ? 'zh-CN' : 'en'], { type: 'region' })
+  return flags.map((flag) => names.of(flag.code) ?? flag.name).join(' | ')
 }
