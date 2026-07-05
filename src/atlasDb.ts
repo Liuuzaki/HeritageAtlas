@@ -417,13 +417,13 @@ export class AtlasDatabase {
   search(filters: PlaceFilters, page: number, pageSize: number): PlaceSearchPage {
     this.ensureRuntimeIndexes()
     const where = filtersToWhere(filters)
-    const combinesCountWithRows = Boolean(filters.query.trim())
-    const select = combinesCountWithRows
-      ? FULL_SELECT.replace('SELECT', 'SELECT COUNT(*) OVER() AS filtered_count,')
-      : FULL_SELECT
-    const countRow = combinesCountWithRows
-      ? undefined
-      : firstResult(this.database, `SELECT COUNT(*) AS count FROM places p ${where.sql}`, where.params)[0]
+    const summary = firstResult(
+      this.database,
+      `SELECT COUNT(*) AS count,
+              SUM(CASE WHEN p.latitude IS NULL OR p.longitude IS NULL THEN 1 ELSE 0 END) AS missing_coordinate_count
+       FROM places p ${where.sql}`,
+      where.params,
+    )[0]
     const order = filters.sort === 'name'
       ? "COALESCE(NULLIF(p.label_native, ''), NULLIF(p.label_en, ''), p.wikidata_qid) COLLATE NOCASE ASC"
       : filters.sort === 'sitelinks'
@@ -432,11 +432,14 @@ export class AtlasDatabase {
     const offset = Math.max(0, page) * pageSize
     const rows = firstResult(
       this.database,
-      `${select} ${where.sql} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      `${FULL_SELECT} ${where.sql} ORDER BY ${order} LIMIT ? OFFSET ?`,
       [...where.params, pageSize, offset],
     )
-    const total = combinesCountWithRows ? asNumber(rows[0]?.filtered_count) : asNumber(countRow?.count)
-    return { total, items: rows.map(toPlace) }
+    return {
+      total: asNumber(summary?.count),
+      missingCoordinateCount: asNumber(summary?.missing_coordinate_count),
+      items: rows.map(toPlace),
+    }
   }
 
   getPlace(qid: string): Place | undefined {

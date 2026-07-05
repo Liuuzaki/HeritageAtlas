@@ -1525,7 +1525,11 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
         <CountryFilterDropdown filters={filters} options={countryOptions} onChange={updateFilters} />
         <label>{uiText(language, 'Sort', '排序')}<select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as PlaceFilters['sort'] })}><option value="sitelinks">{uiText(language, 'Wikipedia popularity', '维基百科热度')}</option><option value="views">TODO: Wikipedia pageview</option><option value="name">{uiText(language, 'Name', '名称')}</option></select></label>
         <TimespanFilter filters={filters} onChange={updateFilters} />
-        <p className="results-summary controls-results-summary" role="status" aria-live="polite">{result.total.toLocaleString()} {uiText(language, 'places match.', '个地点符合')}</p>
+        <p className="results-summary controls-results-summary" role="status" aria-live="polite">
+          {language === 'zh'
+            ? `查询到${result.total.toLocaleString()}个地点，其中${result.missingCoordinateCount.toLocaleString()}个地点缺失坐标，未显示在地图上`
+            : `Found ${result.total.toLocaleString()} places; ${result.missingCoordinateCount.toLocaleString()} are missing coordinates and are not shown on the map.`}
+        </p>
       </section>
 
       <section className="atlas-layout">

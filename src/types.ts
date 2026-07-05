@@ -74,6 +74,7 @@ export type TagFilterOption = {
 
 export type PlaceSearchPage = {
   total: number
+  missingCoordinateCount: number
   items: Place[]
 }
 
