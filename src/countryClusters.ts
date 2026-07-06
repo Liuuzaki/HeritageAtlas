@@ -17,14 +17,14 @@ export type CountryClusterContent = {
  * country cluster; omit them to customize an existing cluster only.
  */
 export const COUNTRY_CLUSTER_CONTENT: CountryClusterContent[] = [
-  {
-    country: 'Hungary',
-    placeholderCoordinates: { latitude: 47.1625, longitude: 19.5033 },
-  },
-  {
-    country: 'Turkey',
-    placeholderCoordinates: { latitude: 38.9637, longitude: 35.2433 },
-  },
+  // {
+  //   country: 'Hungary',
+  //   placeholderCoordinates: { latitude: 47.1625, longitude: 19.5033 },
+  // },
+  // {
+  //   country: 'Turkey',
+  //   placeholderCoordinates: { latitude: 38.9637, longitude: 35.2433 },
+  // },
 ]
 
 export function countryClusterKey(country: string): string {

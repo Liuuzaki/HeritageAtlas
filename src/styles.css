@@ -743,6 +743,7 @@ h1 {
 .country-map-card-markdown a {
   font-weight: 700;
   overflow-wrap: anywhere;
+  text-decoration: none;
 }
 
 .country-map-card-markdown code {
