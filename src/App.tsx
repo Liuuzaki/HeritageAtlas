@@ -23,12 +23,6 @@ type LanguageContextValue = {
 const LanguageContext = createContext<LanguageContextValue>({ language: 'en', setLanguage: () => undefined })
 const LANGUAGE_STORAGE_KEY = 'heritage-atlas-language'
 
-const ARTICLE_UI_TEXT: Record<ArticleSlug, { title: string; eyebrow: string }> = {
-  'about-the-atlas': { title: '关于本站', eyebrow: '导览' },
-  'data-and-methodology': { title: '数据与方法', eyebrow: '数据来源' },
-  'explore-further': { title: '延伸探索', eyebrow: '阅览室' },
-}
-
 function useLanguage() {
   return useContext(LanguageContext)
 }
@@ -38,8 +32,7 @@ export function uiText(language: SiteLanguage, english: string, chinese: string)
 }
 
 function localizedArticleText(slug: ArticleSlug, language: SiteLanguage) {
-  const article = SITE_ARTICLES_BY_SLUG[slug]
-  return language === 'zh' ? ARTICLE_UI_TEXT[slug] : { title: article.title, eyebrow: article.eyebrow }
+  return SITE_ARTICLES_BY_SLUG[slug].translations[language]
 }
 
 function LanguageToggle() {
@@ -1026,13 +1019,12 @@ function MarkdownArticle({ source }: { source: string }) {
 }
 
 function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => void }) {
-  const article = SITE_ARTICLES_BY_SLUG[slug]
   const { language } = useLanguage()
-  const articleText = localizedArticleText(slug, language)
+  const article = localizedArticleText(slug, language)
 
   useEffect(() => {
     const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')
-    document.title = `${articleText.title} · ${brand}`
+    document.title = `${article.title} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
@@ -1041,19 +1033,21 @@ function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => voi
       document.title = brand
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [articleText.title, language, onClose])
+  }, [article.title, language, onClose])
 
   return (
     <div className="record-overlay" onMouseDown={onClose}>
       <section className="record-panel article-panel" role="dialog" aria-modal="true" aria-labelledby="article-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="panel-close" type="button" onClick={onClose} aria-label={uiText(language, 'Close article', '关闭文章')}>&times;</button>
-        <article className="article-shell">
+        <article className="article-shell" lang={language}>
           <header className="article-header">
-            <p className="eyebrow">{articleText.eyebrow}</p>
-            <h1 id="article-title">{articleText.title}</h1>
+            <p className="eyebrow">{article.eyebrow}</p>
+            <h1 id="article-title">{article.title}</h1>
           </header>
           <MarkdownArticle source={article.source} />
-          <p className="article-edit-note">Edit this article in <code>{article.editPath}</code>.</p>
+          <p className="article-edit-note">
+            {uiText(language, 'Edit this article in', '在此文件中编辑本文')} <code>{article.editPath}</code>{uiText(language, '.', '。')}
+          </p>
         </article>
       </section>
     </div>

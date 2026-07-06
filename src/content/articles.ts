@@ -1,38 +1,76 @@
-import aboutTheAtlas from './articles/about-the-atlas.md?raw'
-import dataAndMethodology from './articles/data-and-methodology.md?raw'
-import exploreFurther from './articles/explore-further.md?raw'
+import type { SiteLanguage } from '../types'
+import aboutTheAtlasEn from './articles/about-the-atlas-en.md?raw'
+import aboutTheAtlasZh from './articles/about-the-atlas-zh.md?raw'
+import dataAndMethodologyEn from './articles/data-and-methodology-en.md?raw'
+import dataAndMethodologyZh from './articles/data-and-methodology-zh.md?raw'
+import exploreFurtherEn from './articles/explore-further-en.md?raw'
+import exploreFurtherZh from './articles/explore-further-zh.md?raw'
 
 export type ArticleSlug = 'about-the-atlas' | 'data-and-methodology' | 'explore-further'
 
-export type SiteArticle = {
-  slug: ArticleSlug
+export type LocalizedArticle = {
   title: string
   eyebrow: string
   source: string
   editPath: string
 }
 
+export type SiteArticle = {
+  slug: ArticleSlug
+  translations: Record<SiteLanguage, LocalizedArticle>
+}
+
 export const SITE_ARTICLES: SiteArticle[] = [
   {
     slug: 'about-the-atlas',
-    title: 'About the Atlas',
-    eyebrow: 'Orientation',
-    source: aboutTheAtlas,
-    editPath: 'src/content/articles/about-the-atlas.md',
+    translations: {
+      en: {
+        title: 'About the Atlas',
+        eyebrow: 'Orientation',
+        source: aboutTheAtlasEn,
+        editPath: 'src/content/articles/about-the-atlas-en.md',
+      },
+      zh: {
+        title: '关于本站',
+        eyebrow: '导览',
+        source: aboutTheAtlasZh,
+        editPath: 'src/content/articles/about-the-atlas-zh.md',
+      },
+    },
   },
   {
     slug: 'data-and-methodology',
-    title: 'Data & Methodology',
-    eyebrow: 'Provenance',
-    source: dataAndMethodology,
-    editPath: 'src/content/articles/data-and-methodology.md',
+    translations: {
+      en: {
+        title: 'Data & Methodology',
+        eyebrow: 'Provenance',
+        source: dataAndMethodologyEn,
+        editPath: 'src/content/articles/data-and-methodology-en.md',
+      },
+      zh: {
+        title: '数据与方法',
+        eyebrow: '数据来源',
+        source: dataAndMethodologyZh,
+        editPath: 'src/content/articles/data-and-methodology-zh.md',
+      },
+    },
   },
   {
     slug: 'explore-further',
-    title: 'Explore Further',
-    eyebrow: 'Reading room',
-    source: exploreFurther,
-    editPath: 'src/content/articles/explore-further.md',
+    translations: {
+      en: {
+        title: 'Explore Further',
+        eyebrow: 'Reading room',
+        source: exploreFurtherEn,
+        editPath: 'src/content/articles/explore-further-en.md',
+      },
+      zh: {
+        title: '延伸探索',
+        eyebrow: '阅览室',
+        source: exploreFurtherZh,
+        editPath: 'src/content/articles/explore-further-zh.md',
+      },
+    },
   },
 ]
 
