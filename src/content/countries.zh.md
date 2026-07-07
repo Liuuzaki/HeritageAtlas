@@ -76,6 +76,11 @@
 - 巴伦西亚：[Bienes de interés cultural](https://cultura.gva.es/es/web/patrimonio-cultural-y-museos/bics)
 - 加利西亚：[INFORMACIÓN XEOGRÁFICA DE GALICIA](https://mapas.xunta.gal/visores/pba/)
 
+## Italy
+官方查询入口：
+- 文保单位查询：[Vincoli in Rete](http://vincoliinrete.beniculturali.it/VincoliInRete/vir/bene/ricercabeni)
+- 文化遗产目录：[Catalogo](https://catalogo.cultura.gov.it/search/typeOfResources/ArchitecturalOrLandscapeHeritage)
+
 ## Germany
 德国的古迹查询入口分散在州一级。联邦正在建设一个汇集各州古迹数据的网站，但目前（2026年7月）仍未上线。
 
@@ -96,3 +101,17 @@
 - 萨克森-安哈尔特州：[Denkmalinformationssystem Sachsen-Anhalt](https://lda.sachsen-anhalt.de/denkmalinformationssystem)
 - 石勒苏益格-荷尔施泰因州：[Denkmalkarte Schleswig-Holstein](https://efi2.schleswig-holstein.de/denkmalkarte/)
 - 图林根州：[Denkmalliste Thüringen](https://denkmalpflege.thueringen.de/denkmalliste)
+
+## Switzerland
+瑞士联邦层面提供了各州的古迹名录PDF下载：
+
+- [Kantonslisten](https://www.babs.admin.ch/de/kulturguterschutzinventar-mit-objekten-von-nationaler-und-regionaler-bedeutung)
+
+同时部分州也有自己的查询入口：
+- 伯尔尼州：[Denkmale in Brandenburg](https://denkmalpflege.apps.be.ch/de/collection/)
+- 巴登-符腾堡州：[Denkmalkarte Baden-Württemberg](https://www.denkmalpflege-bw.de/denkmale/karte-kulturdenkmale-auf-geoportal-bw)
+- 巴伐利亚州：[Bayerischer Denkmal-Atlas](https://geoportal.bayern.de/denkmalatlas)
+- 柏林市：[Denkmaldatenbank Berlin](https://denkmaldatenbank.berlin.de/suchresultat.php)
+- 不来梅市：[Denkmaldatenbank Bremen](https://www.denkmalpflege.bremen.de/denkmalliste/denkmaldatenbank-37984?doSearch=1&submit=Suchen)
+- 汉堡市：[Geo-Online Hamburg](https://geoportal-hamburg.de/?layerIDs=453,1754,1757,1755,4953,1756,1758,1759)
+- 黑森州：[Kulturdenkmäler in Hessen](https://denkxweb.denkmalpflege-hessen.de/filter/)
