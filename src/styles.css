@@ -661,7 +661,7 @@ h1 {
 }
 
 .country-cluster-popup .leaflet-popup-content {
-  width: 260px !important;
+  width: 300px !important;
   margin: 0;
 }
 
@@ -708,9 +708,12 @@ h1 {
 }
 
 .country-map-card-markdown {
+  max-height: 200px;
+  overflow-y: auto;
   padding: 11px 13px;
   font-size: .76rem;
   line-height: 1.45;
+  scrollbar-gutter: stable;
 }
 
 .country-map-card-markdown > :first-child {
