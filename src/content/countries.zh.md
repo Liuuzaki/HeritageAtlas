@@ -16,13 +16,13 @@
 ## China
 中国虽拥有海量的古建筑，但中文维基在这方面的数据较少，文旅部官方提供的查询功能亦较为简陋。
 
-若对中国古建感兴趣，建议移步由爱好者共建的[华夏古迹图](https://www.sinorelic.com/map)，已收录约12万处文保点。
+若对中国古建感兴趣，建议移步由爱好者共建的[华夏古迹图](https://www.sinorelic.com/map)，至2026年，该网站已收录约12万处文保点。
 
 官方查询入口：
 - [全国重点文物保护单位地图](http://gl.ncha.gov.cn/#/public-service)
 
 ## Japan
-日语维基在古迹方面的数据较少，但文科省官方提供的查询系统相当强大。
+日语维基在古迹方面的数据较少，但文科省官方提供了完善的查询系统。
 
 官方查询入口：
 - 国家指定文化财产等数据库：[国指定文化財等データベース](https://kunishitei.bunka.go.jp/bsys/index)
@@ -81,11 +81,52 @@
 - 文保单位查询：[Vincoli in Rete](http://vincoliinrete.beniculturali.it/VincoliInRete/vir/bene/ricercabeni)
 - 文化遗产目录：[Catalogo](https://catalogo.cultura.gov.it/search/typeOfResources/ArchitecturalOrLandscapeHeritage)
 
+## Czech Republic
+官方查询入口：
+- 古迹查询：[Památkový katalog](https://pamatkovykatalog.cz/uskp)
+- 数据集下载：[Otevřená data ÚSKP](https://pamatkovykatalog.cz/openData)
+
+## Poland
+官方查询入口：
+- 古迹查询：[Zabytek](https://zabytek.pl/en/obiekty)
+- 数据集下载：[Rejestr zabytków nieruchomych](https://dane.gov.pl/en/dataset/1130,rejestr-zabytkow-nieruchomych)
+
+## Netherlands
+官方查询入口：
+- 古迹查询：[Zoeken in het Rijksmonumentenregister](https://monumentenregister.cultureelerfgoed.nl/)
+- 数据集下载：[Monumentendatabank](https://www.cultureelerfgoed.nl/onderwerpen/r/rijksmonumentenregister/monumentendatabank)
+
+## Sweden
+官方查询入口：
+- 古迹查询：[Bebyggelseregistret](https://app.raa.se/open/bebyggelse/)
+- 数据集下载：[Öppna data-portalen](https://www.raa.se/hitta-information/oppna-data/oppna-data-portal/)
+
+## Norway
+官方查询入口：
+- 古迹查询：[Kulturminnesøk](https://www.kulturminnesok.no/)
+- 数据集下载：[Datasett](https://data.norge.no/nb/datasets/3ecd699c-29b0-4bbd-9550-1dfe1a93bd60/kulturminnesok)
+
+## Russia
+官方查询入口：
+- 古迹查询：[ЕГРОКН](https://okn-mk.mkrf.ru/maps)
+- 数据集下载：[Открытые данные](https://opendata.mkrf.ru/opendata/7705851331-egrkn)
+
+## Ukraine
+官方查询入口：
+- 古迹查询：[Arches](https://arches.e-pamiatka.gov.ua/search)
+- 各地古迹名录PDF下载：[Державний реєстр нерухомих пам’яток](https://mincult.gov.ua/kulturna-spadshchyna/derzhavnyy-reiestr-nerukhomykh-pam-iatok-ukrainy/)
+
+## Belgium
+比利时的古迹查询入口分散在三个大区：
+
+- 弗拉芒大区：[Inventaris](https://inventaris.onroerenderfgoed.be/erfgoedobjecten/zoeken)
+- 瓦隆大区：[Le patrimoine en Wallonie](https://inventairepatrimoine.wallonie.be/fr/inventaire-regional-du-patrimoine/recherche)
+- 布鲁塞尔首都大区：[monument.heritage.brussels](https://monument.heritage.brussels/)
+
 ## Germany
 德国的古迹查询入口分散在州一级。联邦正在建设一个汇集各州古迹数据的网站，但目前（2026年7月）仍未上线。
 
 各州官方查询入口：
-- 梅克伦堡-前波美拉尼亚州目前没有查询入口。
 - 勃兰登堡州：[Denkmale in Brandenburg](https://ns.gis-bldam-brandenburg.de/hida4web/search?sort=datierung&browse-all=yes)
 - 巴登-符腾堡州：[Denkmalkarte Baden-Württemberg](https://www.denkmalpflege-bw.de/denkmale/karte-kulturdenkmale-auf-geoportal-bw)
 - 巴伐利亚州：[Bayerischer Denkmal-Atlas](https://geoportal.bayern.de/denkmalatlas)
@@ -111,3 +152,12 @@
 - 伯尔尼州：[Denkmale in Brandenburg](https://denkmalpflege.apps.be.ch/de/collection/)
 - 阿尔高州：[Online-Inventar](https://www.ag.ch/denkmalpflege/suche/feldsuche.aspx)
 - 图尔高州：[ThurGIS](https://map.geo.tg.ch/apps/denkmaldatenbank/)
+
+## Austria
+奥地利联邦层面提供了各州的古迹名录PDF下载：
+
+- [Denkmalliste](https://www.bda.gv.at/service/unterschutzstellung/denkmalverzeichnis/denkmalliste-gemaess-3-dmsg.html)
+
+同时部分州也有自己的查询入口，例如：
+- 维也纳州：[Wiener Gebäudedaten](https://www.wien.gv.at/kultur/kulturgut-gebaeudedaten)
+- 蒂罗尔州：[Kunstkataster: online](https://www.tirol.gv.at/kunst-kultur/kunstkataster/kunstkataster/)

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { ChevronDown, Download, HelpCircle, Languages, LocateFixed, RefreshCw, Trash2, X } from 'lucide-react'
+import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, RefreshCw, Trash2, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
@@ -455,6 +455,49 @@ function DesignationText({ values, limit, className }: { values: string[]; limit
     : <>Not recorded</>
 }
 
+function wikipediaLanguageFromUrl(articleUrl: string | undefined): string | undefined {
+  if (!articleUrl) return undefined
+  try {
+    const url = new URL(articleUrl)
+    const suffix = '.wikipedia.org'
+    const host = url.hostname.toLocaleLowerCase()
+    return host.endsWith(suffix) ? host.slice(0, -suffix.length) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function placeIsInChina(place: Place): boolean {
+  return countryFlags(place.countryLabelEn).some((flag) => flag.code === 'CN')
+}
+
+function wikipediaSources(place: Place, language: SiteLanguage): { articleUrl: string; label: string }[] {
+  const nativeLanguage = wikipediaLanguageFromUrl(place.nativeWikiUrl)
+  const nativeLabel = nativeLanguage === 'zh' ? 'Chinese Wikipedia' : 'Native Wikipedia'
+  const englishSource = { articleUrl: place.enWikiUrl, label: 'English Wikipedia' }
+  const nativeSource = { articleUrl: place.nativeWikiUrl, label: nativeLabel }
+  const orderedSources = language === 'zh' && placeIsInChina(place) && nativeLanguage === 'zh'
+    ? [nativeSource, englishSource]
+    : [englishSource, nativeSource]
+  const seen = new Set<string>()
+
+  return orderedSources.filter((source): source is { articleUrl: string; label: string } => {
+    if (!source.articleUrl || seen.has(source.articleUrl)) return false
+    seen.add(source.articleUrl)
+    return true
+  })
+}
+
+function VisitLink({ href, label, className }: { href: string; label: string; className?: string }) {
+  const accessibleLabel = `Visit ${label}`
+  return (
+    <a className={['visit-link', className].filter(Boolean).join(' ')} href={href} target="_blank" rel="noreferrer" aria-label={accessibleLabel} title={accessibleLabel}>
+      <ExternalLink size={16} strokeWidth={2.2} aria-hidden="true" />
+      <span className="visually-hidden">{accessibleLabel}</span>
+    </a>
+  )
+}
+
 function aliasedLinks(place: Place): { href: string; label: string }[] {
   const links: { href: string; label: string }[] = []
   const add = (href: string | undefined, label: string) => {
@@ -599,16 +642,10 @@ function wikipediaCandidateFromUrl(articleUrl: string | undefined, sourceLabel: 
   }
 }
 
-function wikipediaCandidates(place: Place): WikipediaCandidate[] {
-  const seen = new Set<string>()
-  return [
-    wikipediaCandidateFromUrl(place.enWikiUrl, 'English Wikipedia'),
-    wikipediaCandidateFromUrl(place.nativeWikiUrl, 'Native language Wikipedia'),
-  ].filter((candidate): candidate is WikipediaCandidate => {
-    if (!candidate || seen.has(candidate.articleUrl)) return false
-    seen.add(candidate.articleUrl)
-    return true
-  })
+function wikipediaCandidates(place: Place, language: SiteLanguage): WikipediaCandidate[] {
+  return wikipediaSources(place, language)
+    .map((source) => wikipediaCandidateFromUrl(source.articleUrl, source.label))
+    .filter((candidate): candidate is WikipediaCandidate => Boolean(candidate))
 }
 
 async function fetchWikipediaArticle(candidate: WikipediaCandidate, signal: AbortSignal): Promise<WikipediaArticle | undefined> {
@@ -670,7 +707,7 @@ function wikipediaPageDocument(article: WikipediaArticle): string {
 
 function WikipediaContentSection({ place }: { place: Place }) {
   const { language } = useLanguage()
-  const candidates = useMemo(() => wikipediaCandidates(place), [place.enWikiUrl, place.nativeWikiUrl])
+  const candidates = useMemo(() => wikipediaCandidates(place, language), [language, place.countryLabelEn, place.enWikiUrl, place.nativeWikiUrl])
   const [state, setState] = useState<WikipediaLoadState>('idle')
   const [article, setArticle] = useState<WikipediaArticle | null>(null)
 
@@ -716,7 +753,7 @@ function WikipediaContentSection({ place }: { place: Place }) {
         <div>
           <p className="eyebrow">{uiText(language, 'Wikipedia', '维基百科')}</p>
         </div>
-        {article && <a href={article.articleUrl} target="_blank" rel="noreferrer">{article.sourceLabel}</a>}
+        {article && <VisitLink href={article.articleUrl} label={article.sourceLabel} />}
       </div>
       {state === 'idle' && <p className="section-empty">No Wikipedia article is recorded for this place.</p>}
       {state === 'loading' && <p className="section-empty">Loading Wikipedia page...</p>}
@@ -884,7 +921,7 @@ function CommonsImagesSection({ place }: { place: Place }) {
         <div>
           <p className="eyebrow">{uiText(language, 'Wiki Commons', '维基共享资源')}</p>
         </div>
-        {source && <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceLabel}</a>}
+        {source && <VisitLink href={source.sourceUrl} label={source.sourceLabel} />}
       </div>
       {state === 'idle' && <p className="section-empty">No Wiki Commons category is recorded for this place.</p>}
       {state === 'error' && <p className="section-empty">Wiki Commons images could not be loaded right now.</p>}
