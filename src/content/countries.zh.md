@@ -107,11 +107,7 @@
 
 - [Kantonslisten](https://www.babs.admin.ch/de/kulturguterschutzinventar-mit-objekten-von-nationaler-und-regionaler-bedeutung)
 
-同时部分州也有自己的查询入口：
+同时部分州也有自己的查询入口，例如：
 - 伯尔尼州：[Denkmale in Brandenburg](https://denkmalpflege.apps.be.ch/de/collection/)
-- 巴登-符腾堡州：[Denkmalkarte Baden-Württemberg](https://www.denkmalpflege-bw.de/denkmale/karte-kulturdenkmale-auf-geoportal-bw)
-- 巴伐利亚州：[Bayerischer Denkmal-Atlas](https://geoportal.bayern.de/denkmalatlas)
-- 柏林市：[Denkmaldatenbank Berlin](https://denkmaldatenbank.berlin.de/suchresultat.php)
-- 不来梅市：[Denkmaldatenbank Bremen](https://www.denkmalpflege.bremen.de/denkmalliste/denkmaldatenbank-37984?doSearch=1&submit=Suchen)
-- 汉堡市：[Geo-Online Hamburg](https://geoportal-hamburg.de/?layerIDs=453,1754,1757,1755,4953,1756,1758,1759)
-- 黑森州：[Kulturdenkmäler in Hessen](https://denkxweb.denkmalpflege-hessen.de/filter/)
+- 阿尔高州：[Online-Inventar](https://www.ag.ch/denkmalpflege/suche/feldsuche.aspx)
+- 图尔高州：[ThurGIS](https://map.geo.tg.ch/apps/denkmaldatenbank/)

@@ -92,6 +92,10 @@ CREATE INDEX IF NOT EXISTS idx_places_display_name ON places(
   COALESCE(NULLIF(label_native, ''), NULLIF(label_en, ''), wikidata_qid) COLLATE NOCASE,
   wikidata_qid
 );
+CREATE INDEX IF NOT EXISTS idx_places_inception_year ON places(
+  CAST(inception_values AS INTEGER)
+)
+WHERE inception_values IS NOT NULL AND TRIM(inception_values) <> '';
 CREATE INDEX IF NOT EXISTS idx_places_country_sitelinks ON places(
   country_label_en, wikipedia_sitelinks_count DESC, label_native COLLATE NOCASE, wikidata_qid
 );

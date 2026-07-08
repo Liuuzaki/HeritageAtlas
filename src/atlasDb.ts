@@ -6,6 +6,7 @@ const DELIMITER = '\u001f'
 const MAP_AGGREGATE_CELL_SIZE_PX = 72
 const MAP_TILE_SIZE_PX = 256
 type Row = Record<string, SqlValue | undefined>
+type TagFilterStats = Pick<AtlasStats, 'countries' | 'instanceOf' | 'architecturalStyles'>
 
 function mapBucketCellSize(zoom: number): number {
   return (360 * MAP_AGGREGATE_CELL_SIZE_PX) / (MAP_TILE_SIZE_PX * 2 ** Math.max(0, Math.floor(zoom)))
@@ -20,6 +21,10 @@ function snapUp(value: number, origin: number, cellSize: number): number {
 }
 
 function countryClusterCacheKey(filters: PlaceFilters): string {
+  return filteredDataCacheKey(filters)
+}
+
+function filteredDataCacheKey(filters: PlaceFilters): string {
   return JSON.stringify([
     filters.query.trim(),
     [...filters.country].sort(),
@@ -29,6 +34,16 @@ function countryClusterCacheKey(filters: PlaceFilters): string {
     filters.timespanStart,
     filters.timespanEnd,
   ])
+}
+
+function hasFilterCriteria(filters: PlaceFilters): boolean {
+  return Boolean(
+    filters.query.trim()
+    || filters.country.length
+    || filters.instanceOf.length
+    || filters.architecturalStyles.length
+    || filters.timespanEnabled
+  )
 }
 
 function firstResult(database: SqlDatabase, sql: string, params: SqlValue[] = []): Row[] {
@@ -223,8 +238,22 @@ export class AtlasDatabase {
   private runtimeIndexesReady = false
   private countryClusterCache: { key: string; places: Place[] } | null = null
   private statsCache: AtlasStats | null = null
+  private tagFilterStatsCache: { key: string; stats: TagFilterStats } | null = null
 
   private constructor(private readonly database: SqlDatabase) {}
+
+  private ensureRuntimeSupportIndexes(): void {
+    this.database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_atlas_tag_place ON atlas_tag_index(place_qid, category, value);
+      CREATE INDEX IF NOT EXISTS idx_places_sitelinks ON places(
+        wikipedia_sitelinks_count DESC, label_native COLLATE NOCASE, wikidata_qid
+      );
+      CREATE INDEX IF NOT EXISTS idx_places_inception_year ON places(
+        CAST(inception_values AS INTEGER)
+      )
+      WHERE inception_values IS NOT NULL AND TRIM(inception_values) <> '';
+    `)
+  }
 
   private ensureRuntimeIndexes(providedTagRows?: Row[]): Row[] {
     if (this.runtimeIndexesReady) return providedTagRows || []
@@ -240,6 +269,7 @@ export class AtlasDatabase {
       ).map((row) => asString(row.name)),
     )
     if (persistentIndexes.has('atlas_search_index') && persistentIndexes.has('atlas_tag_index')) {
+      this.ensureRuntimeSupportIndexes()
       this.runtimeIndexesReady = true
       return tagRows
     }
@@ -304,6 +334,7 @@ export class AtlasDatabase {
 
       ANALYZE atlas_tag_index;
     `)
+    this.ensureRuntimeSupportIndexes()
     this.runtimeIndexesReady = true
     return tagRows
   }
@@ -351,9 +382,14 @@ export class AtlasDatabase {
     return this.statsCache
   }
 
-  getTagFilterStats(filters: PlaceFilters): Pick<AtlasStats, 'countries' | 'instanceOf' | 'architecturalStyles'> {
+  getTagFilterStats(filters: PlaceFilters): TagFilterStats {
     this.ensureRuntimeIndexes()
     const baseStats = this.getStats()
+    if (!hasFilterCriteria(filters)) return baseStats
+
+    const cacheKey = filteredDataCacheKey(filters)
+    if (this.tagFilterStatsCache?.key === cacheKey) return this.tagFilterStatsCache.stats
+
     const optionsWithFilteredCounts = (
       category: 'instance' | 'style',
       options: TagFilterOption[],
@@ -380,7 +416,7 @@ export class AtlasDatabase {
       }))
     }
 
-    return {
+    const stats = {
       countries: (() => {
         const where = filtersToWhere({ ...filters, country: [] })
         const rows = firstResult(
@@ -412,6 +448,8 @@ export class AtlasDatabase {
         { ...filters, architecturalStyles: [] },
       ),
     }
+    this.tagFilterStatsCache = { key: cacheKey, stats }
+    return stats
   }
 
   search(filters: PlaceFilters, page: number, pageSize: number): PlaceSearchPage {
