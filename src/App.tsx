@@ -13,7 +13,7 @@ import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, SiteLan
 type Route = { kind: 'home' } | { kind: 'place'; qid: string } | { kind: 'article'; slug: ArticleSlug }
 type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifying' | 'installing'; received: number; total?: number }
 type AtlasManifestConfig = { releaseApiUrl?: unknown; assetName?: unknown; archiveFormat?: unknown }
-type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown }
+type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown; url?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 type LanguageContextValue = {
   language: SiteLanguage
@@ -230,7 +230,7 @@ async function loadManifest(): Promise<AtlasManifest> {
   const release = await releaseResponse.json() as GitHubRelease
   const assets = Array.isArray(release.assets) ? release.assets as GitHubReleaseAsset[] : []
   const asset = assets.find((candidate) => candidate.name === config.assetName)
-  if (!asset || typeof asset.size !== 'number') {
+  if (!asset || typeof asset.size !== 'number' || typeof asset.url !== 'string') {
     throw new Error(`The latest GitHub release does not contain ${config.assetName}.`)
   }
   if (typeof asset.digest !== 'string' || !/^sha256:[a-f\d]{64}$/i.test(asset.digest)) {
@@ -243,7 +243,7 @@ async function loadManifest(): Promise<AtlasManifest> {
   return {
     version: release.tag_name,
     name: typeof release.name === 'string' && release.name ? release.name : release.tag_name,
-    datasetUrl: resolvePublicUrl(`data/${config.assetName}`),
+    datasetUrl: asset.url,
     archiveFormat: 'zip',
     bytes: asset.size,
     sha256: asset.digest.slice('sha256:'.length),

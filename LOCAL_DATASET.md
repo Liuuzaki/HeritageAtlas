@@ -50,15 +50,14 @@ place heading; `label_en` and `label_zh` appear beneath it. The first URL in
 
 Package the `.sqlite` file as `atlas-sample.zip` and upload that ZIP as a GitHub
 Release asset. The manifest stays in the site repo and points to GitHub's
-latest-release API. The deployment workflow fetches `atlas-sample.zip` from the
-latest release into the Pages artifact. The app downloads that same-origin ZIP
-and uses the asset size and SHA-256 digest supplied by GitHub. GitHub Pages never
-serves the unpacked SQLite database. Vite deploys only `site-public/`; files
-under `public/data/` remain local dataset build inputs and are not copied to
-`dist/`. The Vite development and preview servers proxy the latest release ZIP
-at the same route so the installation flow can be tested locally. Publishing a
-GitHub Release triggers the Pages workflow, keeping the static ZIP synchronized
-with the latest-release API response.
+latest-release API. At runtime, the app reads that API response, finds the
+matching release asset, and downloads it through GitHub's release-asset API URL.
+The Pages artifact contains only the static app and manifest, never
+`atlas-sample.zip`; GitHub Pages also never serves the unpacked SQLite database.
+Vite deploys only `site-public/`; files under `public/data/` remain local
+dataset build inputs and are not copied to `dist/`. Publishing a GitHub Release
+makes the newest ZIP available to the app through the latest-release API
+response.
 
 ## What the database contains
 
