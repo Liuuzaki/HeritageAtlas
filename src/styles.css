@@ -1351,6 +1351,11 @@ footer {
   margin: 0 0 1rem;
 }
 
+.article-body a {
+  text-decoration: none;
+  color: #39779f;
+}
+
 .article-body ul {
   display: grid;
   gap: .55rem;
@@ -2080,7 +2085,9 @@ footer {
   box-shadow: 0 18px 55px rgba(15, 23, 42, .08);
 }
 
-.installer-card>p:not(.eyebrow):not(.notice):not(.installer-note) {
+.installer-intro {
+  max-width: 55ch;
+  margin: 16px 0 0;
   color: #526174;
   line-height: 1.6;
 }
@@ -2092,18 +2099,39 @@ footer {
   gap: 20px;
 }
 
+.latest-data-panel {
+  margin: 26px 0 18px;
+  padding: 16px 0;
+  border-top: 1px solid #dbe2ea;
+  border-bottom: 1px solid #dbe2ea;
+}
+
+.latest-data-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #18212f;
+  font-weight: 800;
+}
+
+.latest-data-loading {
+  display: inline-flex;
+  align-items: center;
+  color: #64748b;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
 .dataset-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 24px 0;
+  gap: 18px;
+  margin: 14px 0 0;
 }
 
 .dataset-facts div {
-  padding: 12px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #e5eaf0;
+  min-width: 0;
 }
 
 .dataset-facts dt {
@@ -2117,20 +2145,13 @@ footer {
 .dataset-facts dd {
   margin: 5px 0 0;
   color: #18212f;
-  font-weight: 700;
+  font-size: 1.05rem;
+  font-weight: 800;
   overflow-wrap: anywhere;
 }
 
-.dataset-facts-loading {
-  display: flex;
-  align-items: center;
-  min-height: 58px;
-  padding: 12px;
-  border: 1px solid #e5eaf0;
-  border-radius: 10px;
-  background: #f8fafc;
-  color: #526174;
-  font-weight: 700;
+.dataset-facts-placeholder {
+  height: 44px;
 }
 
 .loading-dot {
@@ -2152,10 +2173,10 @@ footer {
 }
 
 .installer-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
   gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 22px;
+  margin-top: 20px;
 }
 
 .primary-button {
@@ -2209,6 +2230,11 @@ footer {
   }
 
   .dataset-facts {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .installer-actions {
     grid-template-columns: 1fr;
   }
 

@@ -2,14 +2,16 @@
 
 The website no longer reads `public/data/places.json` at runtime.
 
-On the first visit, the visitor clicks **Download dataset**. The app downloads
-`atlas-sample.zip` from the repository's latest GitHub Release. The release API
-and asset name are configured in `site-public/data/atlas-manifest.json`. The app
-verifies GitHub's SHA-256 digest, extracts its SQLite database, then stores both
-the release ZIP and database in the browser's Origin Private File System (OPFS)
-when available. It falls back to IndexedDB otherwise. Later visits hash the
-stored ZIP to decide whether an update is needed, while reopening the stored
-database directly.
+On the first visit, the visitor clicks **Download dataset**. The app opens a
+normal browser download for `atlas-sample.zip` from the repository's latest
+GitHub Release. Because GitHub release assets are not CORS-readable from a web
+app, the visitor imports the downloaded ZIP afterward. The release API and asset
+name are configured in `site-public/data/atlas-manifest.json`. On import, the
+app verifies GitHub's SHA-256 digest when the ZIP matches the latest release,
+extracts its SQLite database, then stores both the release ZIP and database in
+the browser's Origin Private File System (OPFS) when available. It falls back to
+IndexedDB otherwise. Later visits hash the stored ZIP to decide whether an update
+is needed, while reopening the stored database directly.
 
 The app then queries SQLite in the browser. Search, filters, map-viewport
 queries, sorting, and 20-result pagination do not request place data again.
@@ -51,7 +53,8 @@ place heading; `label_en` and `label_zh` appear beneath it. The first URL in
 Package the `.sqlite` file as `atlas-sample.zip` and upload that ZIP as a GitHub
 Release asset. The manifest stays in the site repo and points to GitHub's
 latest-release API. At runtime, the app reads that API response, finds the
-matching release asset, and downloads it through GitHub's release-asset API URL.
+matching release asset, and opens GitHub's direct release asset URL, such as
+`/releases/download/v2/atlas-sample.zip`, as a browser download.
 The Pages artifact contains only the static app and manifest, never
 `atlas-sample.zip`; GitHub Pages also never serves the unpacked SQLite database.
 Vite deploys only `site-public/`; files under `public/data/` remain local

@@ -35,6 +35,7 @@ export type AtlasManifest = {
   archiveFormat: 'zip'
   bytes: number
   sha256: string
+  assetDate?: string
   recordCount?: number
 }
 

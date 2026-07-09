@@ -24,6 +24,21 @@
 ## India
 印度的古迹维基数据较少，官方亦未提供可用的检索系统。
 
+## Iran
+官方检索入口：
+- 国家遗产门户：[국가유산포털](https://www.heritage.go.kr/heri/cul/culSelectViewList.do)
+
+## Canada
+加拿大有联邦层面的古迹名录，同时各省也有自己的检索入口。
+
+官方检索入口：
+- （多年未更新）加拿大古迹：[Canada's Historic Places](https://www.historicplaces.ca/en/home-accueil.aspx)
+- 联邦古迹名录：[Federal Heritage Designations](https://www.pc.gc.ca/apps/DFHD/default_eng.aspx)
+- 魁北克省古迹检索：[Patrimoine immobilier](https://www.patrimoine-culturel.gouv.qc.ca/rpcq/rechercheImmobilier.do?methode=afficher)
+- 安大略省古迹检索：[Ontario Heritage Trust](https://www.heritagetrust.on.ca/oha/advanced-search)
+- 不列颠哥伦比亚省古迹地图：[BC Register of Historic Places](https://apps.nrs.gov.bc.ca/bcrhp/search)
+
+
 ## United States
 美国联邦层面有NRHP、HABS、HAER、HALS等多个数据集，同时各州也有自己的古迹数据集。
 

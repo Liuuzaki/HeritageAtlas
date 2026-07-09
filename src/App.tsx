@@ -1,19 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, RefreshCw, Trash2, X } from 'lucide-react'
+import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
 import { countryFlags, localizedCountryLabel } from './countryFlags'
 import { MapPanel, type MapFocusRequest } from './MapPanel'
 import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
-import { clearInstalledAtlas, readInstalledAtlas, readInstalledAtlasArchive, requestPersistentStorage, saveInstalledAtlas } from './storage'
+import { clearInstalledAtlas, readInstalledAtlas, requestPersistentStorage, saveInstalledAtlas } from './storage'
 import { isArticleSlug, SITE_ARTICLES_BY_SLUG, type ArticleSlug } from './content/articles'
 import type { AtlasManifest, AtlasStats, MapBounds, Place, PlaceFilters, SiteLanguage, StoredAtlasMetadata, TagFilterOption } from './types'
 
 type Route = { kind: 'home' } | { kind: 'place'; qid: string } | { kind: 'article'; slug: ArticleSlug }
 type InstallProgress = { stage: 'idle' | 'downloading' | 'extracting' | 'verifying' | 'installing'; received: number; total?: number }
 type AtlasManifestConfig = { releaseApiUrl?: unknown; assetName?: unknown; archiveFormat?: unknown }
-type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown; url?: unknown }
+type GitHubReleaseAsset = { name?: unknown; size?: unknown; digest?: unknown; browser_download_url?: unknown; created_at?: unknown; updated_at?: unknown }
 type GitHubRelease = { tag_name?: unknown; name?: unknown; assets?: unknown }
 type LanguageContextValue = {
   language: SiteLanguage
@@ -54,6 +54,7 @@ function LanguageToggle() {
 
 const PAGE_SIZE = 20
 const DATASET_RELEASES_URL = 'https://github.com/Liuuzaki/HeritageAtlas/releases'
+const ATLAS_FILE_ACCEPT = '.zip,.sqlite,.sqlite3,.db,application/zip,application/x-zip-compressed,application/vnd.sqlite3,application/x-sqlite3'
 const EMPTY_STATS: AtlasStats = { placeCount: 0, countries: [], instanceOf: [], architecturalStyles: [] }
 const EMPTY_FILTERS: PlaceFilters = {
   query: '',
@@ -230,7 +231,7 @@ async function loadManifest(): Promise<AtlasManifest> {
   const release = await releaseResponse.json() as GitHubRelease
   const assets = Array.isArray(release.assets) ? release.assets as GitHubReleaseAsset[] : []
   const asset = assets.find((candidate) => candidate.name === config.assetName)
-  if (!asset || typeof asset.size !== 'number' || typeof asset.url !== 'string') {
+  if (!asset || typeof asset.size !== 'number' || typeof asset.browser_download_url !== 'string') {
     throw new Error(`The latest GitHub release does not contain ${config.assetName}.`)
   }
   if (typeof asset.digest !== 'string' || !/^sha256:[a-f\d]{64}$/i.test(asset.digest)) {
@@ -243,48 +244,42 @@ async function loadManifest(): Promise<AtlasManifest> {
   return {
     version: release.tag_name,
     name: typeof release.name === 'string' && release.name ? release.name : release.tag_name,
-    datasetUrl: asset.url,
+    datasetUrl: asset.browser_download_url,
     archiveFormat: 'zip',
     bytes: asset.size,
     sha256: asset.digest.slice('sha256:'.length),
+    assetDate: typeof asset.updated_at === 'string'
+      ? asset.updated_at
+      : typeof asset.created_at === 'string'
+        ? asset.created_at
+        : undefined,
   }
 }
 
-async function downloadBytes(url: string, onProgress: (received: number, total?: number) => void): Promise<Uint8Array> {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: { Accept: 'application/octet-stream' },
-  })
-  if (!response.ok) throw new Error(`Could not download the atlas: ${response.status}`)
-  const totalHeader = Number(response.headers.get('content-length') ?? '')
-  const total = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : undefined
+function startBrowserDownload(url: string): void {
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noreferrer'
+  link.download = ''
+  document.body.append(link)
+  link.click()
+  link.remove()
+}
 
-  if (!response.body) {
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    onProgress(bytes.byteLength, total)
-    return bytes
-  }
+function isZipFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed'
+}
 
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let received = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    if (value) {
-      chunks.push(value)
-      received += value.byteLength
-      onProgress(received, total)
-    }
-  }
-
-  const bytes = new Uint8Array(received)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
+function formatAssetDate(value: string | undefined, language: SiteLanguage): string {
+  if (!value) return uiText(language, 'Not published yet', '尚未发布')
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return uiText(language, 'Date unavailable', '日期不可用')
+  return new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date)
 }
 
 function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -1097,7 +1092,7 @@ type ExploreProps = {
   installed: StoredAtlasMetadata
   manifest: AtlasManifest | null
   onInstallLatest: () => void
-  onCheckUpdates: () => void
+  onImport: (file: File) => void
   onDelete: () => void
   progress: InstallProgress
   updateNote: string
@@ -1411,8 +1406,9 @@ function TimespanFilter({ filters, onChange }: {
   )
 }
 
-function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onCheckUpdates, onDelete, progress, updateNote, localMatchesLatest }: ExploreProps) {
+function ExplorePage({ database, stats, installed, manifest, onInstallLatest, onImport, onDelete, progress, updateNote, localMatchesLatest }: ExploreProps) {
   const { language } = useLanguage()
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const [filters, setFilters] = useState<PlaceFilters>(EMPTY_FILTERS)
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
@@ -1435,10 +1431,9 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE))
   const updateAvailable = Boolean(manifest && localMatchesLatest === false)
   const updating = progress.stage !== 'idle'
-  const updateButtonLabel = updateAvailable
-    ? uiText(language, updating ? 'Updating…' : 'Update', updating ? '正在更新…' : '更新')
-    : uiText(language, updating ? 'Checking…' : 'Check for updates', updating ? '正在检查…' : '检查更新')
+  const updateButtonLabel = uiText(language, updating ? 'Updating…' : 'Update', updating ? '正在更新…' : '更新')
   const manualDownloadLabel = uiText(language, 'Download manually', '手动下载')
+  const importDatasetLabel = uiText(language, 'Import ZIP or SQLite', '导入 ZIP 或 SQLite')
   const deleteLocalDataLabel = uiText(language, 'Delete local data', '删除本地数据')
   const updatePercent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const updateProgressLabel = progress.stage === 'downloading'
@@ -1473,6 +1468,12 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       longitude: place.longitude,
       requestId: mapFocusRequestId.current,
     })
+  }
+
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) onImport(file)
+    event.target.value = ''
   }
 
   const applyPageJump = () => {
@@ -1514,19 +1515,20 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
               </div>
 
               <div className="data-status-actions">
-                {updateAvailable ? (
+                {updateAvailable && (
                   <button className="small-button data-status-icon-button" onClick={onInstallLatest} disabled={updating} aria-label={updateButtonLabel} title={updateButtonLabel}>
-                    <RefreshCw size={16} aria-hidden="true" />
-                  </button>
-                ) : (
-                  <button className="small-button data-status-icon-button" onClick={onCheckUpdates} disabled={updating} aria-label={updateButtonLabel} title={updateButtonLabel}>
                     <RefreshCw size={16} aria-hidden="true" />
                   </button>
                 )}
 
-                <a className="small-button data-status-icon-button" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer" aria-label={manualDownloadLabel} title={manualDownloadLabel}>
+                <a className="small-button data-status-icon-button" href={manifest?.datasetUrl ?? DATASET_RELEASES_URL} target="_blank" rel="noreferrer" aria-label={manualDownloadLabel} title={manualDownloadLabel}>
                   <Download size={16} aria-hidden="true" />
                 </a>
+
+                <button className="small-button data-status-icon-button" onClick={() => inputRef.current?.click()} disabled={updating} aria-label={importDatasetLabel} title={importDatasetLabel}>
+                  <Upload size={16} aria-hidden="true" />
+                </button>
+                <input ref={inputRef} type="file" accept={ATLAS_FILE_ACCEPT} hidden onChange={chooseFile} />
 
                 <button className="small-button data-status-icon-button" onClick={onDelete} disabled={updating} aria-label={deleteLocalDataLabel} title={deleteLocalDataLabel}>
                   <Trash2 size={16} aria-hidden="true" />
@@ -1598,12 +1600,15 @@ function Installer({ manifest, current, progress, error, notice, onDownload, onI
   const percent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const working = progress.stage !== 'idle'
   const progressLabel = progress.stage === 'downloading'
-    ? progress.received > 0 ? 'Downloading atlas…' : 'Connecting to download…'
+    ? progress.received > 0 ? uiText(language, 'Downloading atlas...', '正在下载图集...') : uiText(language, 'Connecting to download...', '正在连接下载...')
     : progress.stage === 'extracting'
-      ? 'Extracting database…'
+      ? uiText(language, 'Extracting database...', '正在解压数据库...')
       : progress.stage === 'verifying'
-        ? 'Verifying archive…'
-        : 'Installing local database…'
+        ? uiText(language, 'Verifying archive...', '正在验证压缩包...')
+        : uiText(language, 'Installing local database...', '正在安装本地数据库...')
+  const noticeText = notice === 'The dataset is downloading from GitHub Releases. Import the downloaded ZIP here after it finishes.'
+    ? uiText(language, 'The dataset is downloading from GitHub Releases. Import the downloaded ZIP here after it finishes.', '数据集正在从 GitHub Releases 下载。下载完成后，请在此导入 ZIP 文件。')
+    : notice
 
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -1616,24 +1621,35 @@ function Installer({ manifest, current, progress, error, notice, onDownload, onI
       <section className="installer-card">
         <div className="installer-heading">
           <div>
-            <p className="eyebrow">{uiText(language, 'Offline-first heritage database', '离线优先的文化遗产数据库')}</p>
-            <h1>{uiText(language, 'Get the dataset', '获取数据集')}</h1>
+            <p className="eyebrow">{uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')}</p>
+            <h1>{uiText(language, 'Install the dataset', '安装数据集')}</h1>
           </div>
           <LanguageToggle />
         </div>
-        <p>The dataset is distributed through GitHub. You need to download it on your first visit. 
-          This helps reduce bandwidth usage and improves query performance.</p>
-        {manifest
-          ? <dl className="dataset-facts"><div><dt>Dataset</dt><dd>{manifest.name}</dd></div><div><dt>Version</dt><dd>{manifest.version}</dd></div><div><dt>Size</dt><dd>{formatBytes(manifest.bytes)}</dd></div>{manifest.recordCount && <div><dt>Places</dt><dd>{manifest.recordCount.toLocaleString()}</dd></div>}<div><dt>Alternative</dt><dd><a className="manual-download-link" href={DATASET_RELEASES_URL} target="_blank" rel="noreferrer">{uiText(language, 'Download manually', '手动下载')}</a></dd></div></dl>
-          : <div className="dataset-facts dataset-facts-loading" role="status" aria-live="polite"><span className="loading-dot" aria-hidden="true" />Loading dataset details…</div>}
-        {current && <p className="notice">A previous dataset is available locally ({current.name}, {current.version}), but it could not be opened yet.</p>}
-        {notice && <p className="notice">{notice}</p>}
+
+        <p className="installer-intro">{uiText(language, 'Please download the latest released data from GitHub first, then import the ZIP file. This can both save website bandwidth and improve query performance.', '请先从GitHub下载最新发布的数据，然后导入ZIP文件，这既可以节省网站流量，也可以提高查询性能。')}</p>
+
+        <section className="latest-data-panel" aria-label={uiText(language, 'Newest data details', '最新数据详情')}>
+          <div className="latest-data-heading">
+            <span>{uiText(language, 'Newest data', '最新数据')}</span>
+            {!manifest && <span className="latest-data-loading"><span className="loading-dot" aria-hidden="true" />{uiText(language, 'Loading...', '正在加载...')}</span>}
+          </div>
+          {manifest
+            ? <dl className="dataset-facts">
+                <div><dt>{uiText(language, 'Size', '大小')}</dt><dd>{formatBytes(manifest.bytes)}</dd></div>
+                <div><dt>{uiText(language, 'Date', '日期')}</dt><dd>{formatAssetDate(manifest.assetDate, language)}</dd></div>
+              </dl>
+            : <div className="dataset-facts-placeholder" aria-hidden="true" />}
+        </section>
+
+        {current && <p className="notice">{uiText(language, `A previous dataset is available locally (${current.name}, ${current.version}), but it could not be opened yet.`, `已有本地数据集（${current.name}，${current.version}），但暂时无法打开。`)}</p>}
+        {noticeText && <p className="notice">{noticeText}</p>}
         {error && <p className="notice error">{error}</p>}
-        {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{progress.stage === 'downloading' && progress.received === 0 ? 'Waiting for the first bytes…' : <>{formatBytes(progress.received)}{progress.total ? ` of ${formatBytes(progress.total)}` : ''}{percent !== undefined ? ` · ${percent}%` : ''}</>}</span><progress value={progress.received > 0 ? progress.received : undefined} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
+        {working && <div className="install-progress"><strong>{progressLabel}</strong><span>{progress.stage === 'downloading' && progress.received === 0 ? uiText(language, 'Waiting for the first bytes...', '正在等待数据...') : <>{formatBytes(progress.received)}{progress.total ? uiText(language, ` of ${formatBytes(progress.total)}`, ` / ${formatBytes(progress.total)}`) : ''}{percent !== undefined ? ` · ${percent}%` : ''}</>}</span><progress value={progress.received > 0 ? progress.received : undefined} max={progress.total ?? Math.max(progress.received, 1)} /></div>}
         <div className="installer-actions">
-          <button className="primary-button" onClick={onDownload} disabled={!manifest || working}>{working ? uiText(language, 'Working…', '正在处理…') : uiText(language, 'Download dataset', '下载数据集')}</button>
-          <button onClick={() => inputRef.current?.click()} disabled={working}>{uiText(language, 'Import a sqlite file', '导入 SQLite 文件')}</button>
-          <input ref={inputRef} type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3,application/x-sqlite3" hidden onChange={chooseFile} />
+          <button className="primary-button" onClick={onDownload} disabled={!manifest || working}>{working ? uiText(language, 'Working...', '正在处理...') : uiText(language, 'Download latest ZIP', '下载最新 ZIP')}</button>
+          <button onClick={() => inputRef.current?.click()} disabled={working}>{uiText(language, 'Import ZIP or SQLite', '导入 ZIP 或 SQLite')}</button>
+          <input ref={inputRef} type="file" accept={ATLAS_FILE_ACCEPT} hidden onChange={chooseFile} />
         </div>
       </section>
     </main>
@@ -1734,63 +1750,48 @@ export default function App() {
     setProgress({ stage: 'idle', received: 0 })
   }, [openLocalBytes])
 
-  const downloadLatest = useCallback(async () => {
+  const downloadLatest = useCallback(() => {
     if (!manifest) return
     try {
       setError('')
-      setUpdateNote('')
-      setProgress({ stage: 'downloading', received: 0, total: manifest.bytes })
       const sourceUrl = new URL(manifest.datasetUrl, new URL(import.meta.env.BASE_URL, window.location.origin)).toString()
-      const archiveBytes = await downloadBytes(sourceUrl, (received, total) => setProgress({ stage: 'downloading', received, total: total ?? manifest.bytes }))
-      setProgress({ stage: 'verifying', received: archiveBytes.byteLength, total: archiveBytes.byteLength })
-      const actual = await sha256Hex(archiveBytes)
-      if (actual.toLowerCase() !== manifest.sha256.toLowerCase()) {
-        setProgress({ stage: 'idle', received: 0 })
-        setUpdateNote('The latest dataset could not be verified yet. Please try the download again in a moment.')
-        return
-      }
-      setProgress({ stage: 'extracting', received: 0 })
-      const bytes = await extractSqliteFromZip(archiveBytes)
-      await installBytes(bytes, { version: manifest.version, name: manifest.name, bytes: bytes.byteLength, installedAt: new Date().toISOString(), sourceUrl, sha256: manifest.sha256 }, archiveBytes)
+      startBrowserDownload(sourceUrl)
+      setUpdateNote('The dataset is downloading from GitHub Releases. Import the downloaded ZIP here after it finishes.')
     } catch (reason) {
-      setProgress({ stage: 'idle', received: 0 })
-      setError(reason instanceof Error ? reason.message : 'Could not install the atlas.')
+      setError(reason instanceof Error ? reason.message : 'Could not start the atlas download.')
     }
-  }, [installBytes, manifest])
+  }, [manifest])
 
   const importAtlas = useCallback(async (file: File) => {
     try {
       setError('')
       setUpdateNote('')
       setProgress({ stage: 'downloading', received: 0, total: file.size })
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      setProgress({ stage: 'installing', received: bytes.byteLength, total: bytes.byteLength })
-      await installBytes(bytes, { version: `manual-${file.lastModified}`, name: file.name, bytes: bytes.byteLength, installedAt: new Date().toISOString() })
+      const fileBytes = new Uint8Array(await file.arrayBuffer())
+      if (isZipFile(file)) {
+        setProgress({ stage: 'verifying', received: fileBytes.byteLength, total: fileBytes.byteLength })
+        const actual = await sha256Hex(fileBytes)
+        const matchesLatest = Boolean(manifest && actual.toLowerCase() === manifest.sha256.toLowerCase())
+        setProgress({ stage: 'extracting', received: 0 })
+        const bytes = await extractSqliteFromZip(fileBytes)
+        await installBytes(bytes, {
+          version: matchesLatest && manifest ? manifest.version : `manual-${file.lastModified}`,
+          name: matchesLatest && manifest ? manifest.name : file.name,
+          bytes: bytes.byteLength,
+          installedAt: new Date().toISOString(),
+          sourceUrl: matchesLatest && manifest ? manifest.datasetUrl : undefined,
+          sha256: actual,
+        }, fileBytes)
+        setLocalMatchesLatest(matchesLatest)
+        return
+      }
+      setProgress({ stage: 'installing', received: fileBytes.byteLength, total: fileBytes.byteLength })
+      await installBytes(fileBytes, { version: `manual-${file.lastModified}`, name: file.name, bytes: fileBytes.byteLength, installedAt: new Date().toISOString() })
     } catch (reason) {
       setProgress({ stage: 'idle', received: 0 })
       setError(reason instanceof Error ? reason.message : 'Could not import this file.')
     }
-  }, [installBytes])
-
-  const checkForUpdates = useCallback(async () => {
-    try {
-      setError('')
-      setUpdateNote('Checking the small update manifest…')
-      setProgress({ stage: 'installing', received: 0 })
-      const latestManifest = await loadManifest()
-      setManifest(latestManifest)
-      const archiveBytes = await readInstalledAtlasArchive()
-      const localSha256 = archiveBytes ? await sha256Hex(archiveBytes) : null
-      const matches = localSha256?.toLowerCase() === latestManifest.sha256.toLowerCase()
-      setLocalMatchesLatest(matches)
-      setUpdateNote(matches ? 'This browser already has the latest dataset.' : 'A newer dataset is available.')
-    } catch (reason) {
-      setUpdateNote('')
-      setError(reason instanceof Error ? reason.message : 'Could not check for updates.')
-    } finally {
-      setProgress({ stage: 'idle', received: 0 })
-    }
-  }, [installed?.version])
+  }, [installBytes, manifest])
 
   const deleteLocal = useCallback(async () => {
     const shouldDelete = window.confirm('Delete the installed atlas from this browser? You can download it again later.')
@@ -1816,7 +1817,7 @@ export default function App() {
   const closePanel = () => { window.location.hash = '/' }
 
   return <LanguageContext.Provider value={{ language, setLanguage }}>
-    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onCheckUpdates={checkForUpdates} onDelete={deleteLocal} progress={progress} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
+    <ExplorePage database={database} stats={stats} installed={installed} manifest={manifest} onInstallLatest={downloadLatest} onImport={importAtlas} onDelete={deleteLocal} progress={progress} updateNote={updateNote} localMatchesLatest={localMatchesLatest} />
     {route.kind === 'place' && <PlacePanel database={database} qid={route.qid} onClose={closePanel} />}
     {route.kind === 'article' && <ArticlePanel slug={route.slug} onClose={closePanel} />}
   </LanguageContext.Provider>
