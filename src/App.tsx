@@ -351,8 +351,14 @@ async function fetchTagNameInfo(qid: string, nativeLanguageLabel: string | undef
 function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card' | 'hero' }) {
   const candidates = place.commonsImageUrls
   const [index, setIndex] = useState(0)
+  const [usingOriginal, setUsingOriginal] = useState(false)
   const source = candidates[index]
   const className = variant === 'hero' ? 'thumbnail thumbnail-hero' : 'thumbnail'
+
+  useEffect(() => {
+    setIndex(0)
+    setUsingOriginal(false)
+  }, [place.qid, variant])
 
   if (!source || index >= candidates.length) {
     return (
@@ -363,10 +369,19 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
     )
   }
 
-  const imageSource = variant === 'hero' ? fullResolutionImageUrl(source) : thumbnailImageUrl(source, 384)
-  const image = <img className={className} src={imageSource} alt={place.labelNative} loading={variant === 'hero' ? 'eager' : 'lazy'} onError={() => setIndex((current) => current + 1)} />
+  const originalSource = fullResolutionImageUrl(source)
+  const imageSource = variant === 'hero' || usingOriginal ? originalSource : thumbnailImageUrl(source, 384)
+  const handleImageError = () => {
+    if (variant === 'card' && !usingOriginal) {
+      setUsingOriginal(true)
+      return
+    }
+    setUsingOriginal(false)
+    setIndex((current) => current + 1)
+  }
+  const image = <img className={className} src={imageSource} alt={place.labelNative} loading={variant === 'hero' ? 'eager' : 'lazy'} referrerPolicy="no-referrer" onError={handleImageError} />
   if (variant === 'card') return image
-  return <a href={fullResolutionImageUrl(source)} target="_blank" rel="noreferrer" className="thumbnail-link">{image}</a>
+  return <a href={originalSource} target="_blank" rel="noreferrer" className="thumbnail-link">{image}</a>
 }
 
 function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilters['sort']; onFocusMap: (place: Place) => void }) {
@@ -680,14 +695,78 @@ async function fetchWikipediaArticle(candidate: WikipediaCandidate, signal: Abor
   }
 }
 
+function absoluteWikipediaUrl(value: string, baseUrl: URL): string {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith('#') || /^(?:data|blob|mailto|tel):/i.test(trimmed)) return value
+  try {
+    return new URL(trimmed, baseUrl).toString()
+  } catch {
+    return value
+  }
+}
+
+function absoluteWikipediaSrcSet(value: string, baseUrl: URL): string {
+  return value.split(',').map((candidate) => {
+    const parts = candidate.trim().split(/\s+/)
+    const url = parts.shift()
+    return url ? [absoluteWikipediaUrl(url, baseUrl), ...parts].join(' ') : candidate
+  }).join(', ')
+}
+
+function normalizeWikipediaContent(html: string, baseUrl: URL): string {
+  if (typeof DOMParser === 'undefined') {
+    return html
+      .replaceAll('href="//', 'href="https://')
+      .replaceAll('src="//', 'src="https://')
+      .replaceAll('srcset="//', 'srcset="https://')
+  }
+
+  const parsedDocument = new DOMParser().parseFromString(html, 'text/html')
+  parsedDocument.querySelectorAll<HTMLElement>('[href]').forEach((element) => {
+    const href = element.getAttribute('href')
+    if (href) element.setAttribute('href', absoluteWikipediaUrl(href, baseUrl))
+  })
+
+  parsedDocument.querySelectorAll<HTMLImageElement | HTMLSourceElement>('img, source').forEach((element) => {
+    const lazySrc = element.getAttribute('data-src') || element.getAttribute('data-lazy-src') || element.getAttribute('data-original')
+    const src = element.getAttribute('src')
+    if (src) {
+      element.setAttribute('src', absoluteWikipediaUrl(src, baseUrl))
+    } else if (lazySrc) {
+      element.setAttribute('src', absoluteWikipediaUrl(lazySrc, baseUrl))
+    }
+
+    const lazySrcSet = element.getAttribute('data-srcset') || element.getAttribute('data-lazy-srcset')
+    const srcSet = element.getAttribute('srcset')
+    if (srcSet) {
+      element.setAttribute('srcset', absoluteWikipediaSrcSet(srcSet, baseUrl))
+    } else if (lazySrcSet) {
+      element.setAttribute('srcset', absoluteWikipediaSrcSet(lazySrcSet, baseUrl))
+    }
+
+    element.setAttribute('referrerpolicy', 'no-referrer')
+    element.removeAttribute('data-src')
+    element.removeAttribute('data-srcset')
+    element.removeAttribute('data-lazy-src')
+    element.removeAttribute('data-lazy-srcset')
+    if (element.tagName === 'IMG') {
+      element.setAttribute('loading', 'eager')
+      element.setAttribute('decoding', 'async')
+    }
+  })
+
+  return parsedDocument.body.innerHTML
+}
+
 function wikipediaPageDocument(article: WikipediaArticle): string {
   const baseUrl = new URL(article.articleUrl)
   const baseHref = `${baseUrl.origin}/`
-  const content = article.html.replaceAll('href="//', 'href="https://').replaceAll('src="//', 'src="https://')
+  const content = normalizeWikipediaContent(article.html, new URL(baseHref))
   return `<!doctype html>
 <html lang="${article.language}">
 <head>
   <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
   <base href="${baseHref}" target="_blank">
   <style>
     :root { color: #202122; background: #fff; font-family: sans-serif; }
@@ -759,7 +838,7 @@ function WikipediaContentSection({ place }: { place: Place }) {
     <section className="record-section wikipedia-section" aria-labelledby="wikipedia-content-title">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">{uiText(language, 'Wikipedia', '维基百科')}</p>
+          <h2 id="wikipedia-content-title">{uiText(language, 'Wikipedia', '维基百科')}</h2>
         </div>
         {article && <VisitLink href={article.articleUrl} label={article.sourceLabel} />}
       </div>
@@ -776,7 +855,8 @@ function WikipediaContentSection({ place }: { place: Place }) {
             className="wikipedia-frame"
             title={`${article.title} on Wikipedia`}
             srcDoc={pageDocument}
-            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            referrerPolicy="no-referrer"
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             scrolling="auto"
           />
         </div>
@@ -857,11 +937,25 @@ async function fetchCommonsImages(source: CommonsSource, continuation: Record<st
 }
 
 function CommonsGalleryImage({ file, label, index }: { file: CommonsFile; label: string; index: number }) {
+  const [usingOriginal, setUsingOriginal] = useState(false)
   const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setUsingOriginal(false)
+    setFailed(false)
+  }, [file.fullUrl, file.thumbUrl])
+
   if (failed) return null
   return (
     <a className="commons-gallery-item" href={file.fullUrl} target="_blank" rel="noreferrer">
-      <img src={file.thumbUrl} alt={`${label} image ${index + 1}`} title={file.title} loading="lazy" onError={() => setFailed(true)} />
+      <img
+        src={usingOriginal ? file.fullUrl : file.thumbUrl}
+        alt={`${label} image ${index + 1}`}
+        title={file.title}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => usingOriginal ? setFailed(true) : setUsingOriginal(true)}
+      />
     </a>
   )
 }
@@ -927,7 +1021,7 @@ function CommonsImagesSection({ place }: { place: Place }) {
     <section className="record-section commons-section" aria-labelledby="commons-images-title">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">{uiText(language, 'Wiki Commons', '维基共享资源')}</p>
+          <h2 id="commons-images-title">{uiText(language, 'Wiki Commons', '维基共享资源')}</h2>
         </div>
         {source && <VisitLink href={source.sourceUrl} label={source.sourceLabel} />}
       </div>
@@ -950,7 +1044,7 @@ function PlacePanel({ database, qid, onClose }: { database: AtlasDatabase; qid: 
   const place = useMemo(() => database.getPlace(qid), [database, qid])
 
   useEffect(() => {
-    const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')
+    const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产地图')
     document.title = place ? `${place.labelNative} · ${brand}` : `${uiText(language, 'Record not found', '未找到记录')} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -1068,7 +1162,7 @@ function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => voi
   const article = localizedArticleText(slug, language)
 
   useEffect(() => {
-    const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')
+    const brand = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产地图')
     document.title = `${article.title} · ${brand}`
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -1431,7 +1525,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const mapFocusRequestId = useRef(0)
   const placeListRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => { document.title = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱') }, [language])
+  useEffect(() => { document.title = uiText(language, 'Wiki Monument Atlas', '维基建筑遗产地图') }, [language])
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
@@ -1503,7 +1597,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
       <header className="site-header">
         <div className="site-title-row">
           <div className="site-title-left">
-            <h1>{uiText(language, 'Wiki Monument Atlas', '维基建筑遗产图谱')}</h1>
+            <h1>{uiText(language, 'Wiki Monument Atlas', '维基建筑遗产地图')}</h1>
             <a
               className="site-about-link"
               href={articleHref('about-the-atlas')}

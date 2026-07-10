@@ -9,7 +9,7 @@ import {
 } from './countryClusters'
 import { countryFlags, localizedCountryLabel } from './countryFlags'
 import { formatViews } from './data'
-import { thumbnailImageUrl } from './images'
+import { fullResolutionImageUrl, thumbnailImageUrl } from './images'
 import { COUNTRY_CLUSTER_MAX_ZOOM, INDIVIDUAL_MARKER_ZOOM } from './mapConfig'
 import type { MapBounds, Place, SiteLanguage } from './types'
 
@@ -333,7 +333,7 @@ function popupHtml(place: Place, metric: ColorMetric, wikiPopularityLabel: strin
   const views = place.wikiViewCount ?? 0
   const thumbnail = place.commonsImageUrls[0]
   const image = thumbnail
-    ? `<img class="map-card-image" src="${escapeHtml(thumbnailImageUrl(thumbnail, 384))}" alt="" loading="lazy" decoding="async">`
+    ? `<img class="map-card-image" src="${escapeHtml(thumbnailImageUrl(thumbnail, 384))}" data-original-src="${escapeHtml(fullResolutionImageUrl(thumbnail))}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.dataset.originalSrc">`
     : '<div class="map-card-image map-card-image-fallback" aria-hidden="true">🏛</div>'
   return `
     <div class="map-card">
