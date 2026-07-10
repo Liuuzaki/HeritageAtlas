@@ -1452,6 +1452,17 @@ footer {
   min-width: 0;
 }
 
+.coordinate-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.coordinate-link svg {
+  flex: 0 0 auto;
+  color: #188038;
+}
+
 .summary-links {
   display: flex;
   flex-wrap: wrap;
@@ -1460,6 +1471,9 @@ footer {
 }
 
 .summary-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   max-width: 100%;
   padding: .28rem .48rem;
   border: 1px solid #c7d2df;
@@ -1470,6 +1484,11 @@ footer {
   font-weight: 750;
   line-height: 1.1;
   text-decoration: none;
+}
+
+.summary-link-icon {
+  flex: 0 0 auto;
+  opacity: .72;
 }
 
 .summary-links a:hover {

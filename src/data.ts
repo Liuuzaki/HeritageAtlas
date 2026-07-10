@@ -14,8 +14,12 @@ export function formatBytes(value?: number): string {
   return `${amount.toFixed(amount >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-export function formatInception(value: string): string {
-  if (value.startsWith('+')) return value.slice(1)
-  if (value.startsWith('-')) return `${value.slice(1)} BC`
-  return value
+export function formatInception(value: string, language: 'en' | 'zh' = 'en'): string {
+  const match = value.match(/^([+-]?)(\d+)$/)
+  if (!match) return value
+
+  const year = Number(match[2])
+  if (!Number.isSafeInteger(year)) return value
+  if (match[1] === '-') return language === 'zh' ? `公元前${year}年` : `${year} BCE`
+  return language === 'zh' ? `${year}年` : `${year} CE`
 }

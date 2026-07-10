@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, RefreshCw, Trash2, Upload, X } from 'lucide-react'
+import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, MapPinned, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
@@ -493,18 +493,28 @@ function VisitLink({ href, label, className }: { href: string; label: string; cl
   )
 }
 
-function aliasedLinks(place: Place): { href: string; label: string }[] {
-  const links: { href: string; label: string }[] = []
-  const add = (href: string | undefined, label: string) => {
-    if (href && !links.some((link) => link.href === href)) links.push({ href, label })
+type SummaryLink = { href: string; labelEn: string; labelZh: string }
+
+function aliasedLinks(place: Place): SummaryLink[] {
+  const links: SummaryLink[] = []
+  const add = (href: string | undefined, labelEn: string, labelZh: string) => {
+    if (href && !links.some((link) => link.href === href)) links.push({ href, labelEn, labelZh })
   }
 
-  place.sourceRecordUrls.forEach((url, index) => add(url, place.sourceRecordUrls.length > 1 ? `Source record ${index + 1}` : 'Source record'))
-  add(place.enWikiUrl, 'English Wikipedia')
-  add(place.nativeWikiUrl, 'Native Wikipedia')
-  place.officialWebsiteUrls.forEach((url, index) => add(url, place.officialWebsiteUrls.length > 1 ? `Official website ${index + 1}` : 'Official website'))
-  add(place.wikicommonsCategory, 'Wiki Commons')
-  add(`https://www.wikidata.org/wiki/${place.qid}`, 'Wikidata')
+  place.sourceRecordUrls.forEach((url, index) => add(
+    url,
+    place.sourceRecordUrls.length > 1 ? `Source record ${index + 1}` : 'Source record',
+    place.sourceRecordUrls.length > 1 ? `来源记录 ${index + 1}` : '来源记录',
+  ))
+  add(place.enWikiUrl, 'English Wikipedia', '英文维基百科')
+  add(place.nativeWikiUrl, 'Native Wikipedia', '本地维基百科')
+  place.officialWebsiteUrls.forEach((url, index) => add(
+    url,
+    place.officialWebsiteUrls.length > 1 ? `Official website ${index + 1}` : 'Official website',
+    place.officialWebsiteUrls.length > 1 ? `官方网站 ${index + 1}` : '官方网站',
+  ))
+  add(place.wikicommonsCategory, 'Wiki Commons', '维基共享资源')
+  add(`https://www.wikidata.org/wiki/${place.qid}`, 'Wikidata', '维基数据')
   return links
 }
 
@@ -518,11 +528,14 @@ function RecordSummary({ place, coordinateText, hasCoordinates }: { place: Place
       <dl className="summary-facts">
         <DetailRow label={uiText(language, 'Country', '国家/地区')}>{place.countryLabelEn || 'Not recorded'}</DetailRow>
         <DetailRow label={uiText(language, 'Heritage designation', '遗产认定')}><DesignationText values={place.designations} /></DetailRow>
-        <DetailRow label={uiText(language, 'Inception', '始建时间')}><TextList values={place.inceptionValues} formatValue={formatInception} /></DetailRow>
-        <DetailRow label={uiText(language, 'Map coordinates', '地图坐标')}>{hasCoordinates ? <a href={googleMapsUrl} target="_blank" rel="noreferrer">{coordinateText}</a> : 'Not recorded'}</DetailRow>
+        <DetailRow label={uiText(language, 'Inception', '始建时间')}><TextList values={place.inceptionValues} formatValue={(value) => formatInception(value, language)} /></DetailRow>
+        <DetailRow label={uiText(language, 'Map coordinates', '地图坐标')}>{hasCoordinates ? <a className="coordinate-link" href={googleMapsUrl} target="_blank" rel="noreferrer" aria-label={uiText(language, `Open ${coordinateText} in Google Maps`, `在 Google 地图中打开 ${coordinateText}`)}><MapPinned size={15} strokeWidth={2.2} aria-hidden="true" />{coordinateText}</a> : 'Not recorded'}</DetailRow>
       </dl>
-      {links.length > 0 && <nav className="summary-links" aria-label="Record links">
-        {links.map((link) => <a key={link.href} href={link.href} target="_blank" rel="noreferrer">{link.label}</a>)}
+      {links.length > 0 && <nav className="summary-links" aria-label={uiText(language, 'Record links', '记录链接')}>
+        {links.map((link) => {
+          const label = uiText(language, link.labelEn, link.labelZh)
+          return <a key={link.href} href={link.href} target="_blank" rel="noreferrer" aria-label={uiText(language, `Open ${label}`, `打开${label}`)}>{label}<ExternalLink className="summary-link-icon" size={12} strokeWidth={2.4} aria-hidden="true" /></a>
+        })}
       </nav>}
     </section>
   )
@@ -1362,8 +1375,8 @@ function TimespanFilter({ filters, onChange }: {
             <HelpCircle size={15} aria-hidden="true" />
           </button>
           <span id="timespan-help-tooltip" className="timespan-tooltip" role="tooltip">
-            <p>Use negative years for BCE.</p>
-            <p>Disabled by default because construction date data is available for only about one-third of places.</p>
+            <p>{uiText(language, 'Use negative years for BCE.', '公元前年份请使用负数。')}</p>
+            <p>{uiText(language, 'Disabled by default because construction date data is available for only about one-third of places.', '默认关闭，因为只有约三分之一的地点记录了建造日期。')}</p>
           </span>
         </span>
       </div>

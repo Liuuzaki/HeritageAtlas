@@ -22,11 +22,8 @@
 - 国家遗产门户：[국가유산포털](https://www.heritage.go.kr/heri/cul/culSelectViewList.do)
 
 ## India
-印度的古迹维基数据较少，官方亦未提供可用的检索系统。
 
 ## Iran
-官方检索入口：
-- 国家遗产门户：[국가유산포털](https://www.heritage.go.kr/heri/cul/culSelectViewList.do)
 
 ## Canada
 加拿大有联邦层面的古迹名录，同时各省也有自己的检索入口。
