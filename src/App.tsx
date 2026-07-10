@@ -1109,8 +1109,7 @@ function renderArticleInline(text: string): ReactNode[] {
   })
 }
 
-function MarkdownArticle({ source }: { source: string }) {
-  const lines = source.replace(/\r\n/g, '\n').split('\n')
+function renderMarkdownBlocks(lines: string[], keyPrefix: string): ReactNode[] {
   const blocks: ReactNode[] = []
   let index = 0
 
@@ -1124,8 +1123,8 @@ function MarkdownArticle({ source }: { source: string }) {
     const heading = line.match(/^(#{2,3})\s+(.+)$/)
     if (heading?.[2]) {
       blocks.push(heading[1] === '##'
-        ? <h2 key={`heading-${index}`}>{renderArticleInline(heading[2])}</h2>
-        : <h3 key={`heading-${index}`}>{renderArticleInline(heading[2])}</h3>)
+        ? <h2 key={`${keyPrefix}-heading-${index}`}>{renderArticleInline(heading[2])}</h2>
+        : <h3 key={`${keyPrefix}-heading-${index}`}>{renderArticleInline(heading[2])}</h3>)
       index += 1
       continue
     }
@@ -1136,10 +1135,10 @@ function MarkdownArticle({ source }: { source: string }) {
       while (index < lines.length) {
         const item = (lines[index] ?? '').trim()
         if (!item.startsWith('- ')) break
-        items.push(<li key={`item-${index}`}>{renderArticleInline(item.slice(2))}</li>)
+        items.push(<li key={`${keyPrefix}-item-${index}`}>{renderArticleInline(item.slice(2))}</li>)
         index += 1
       }
-      blocks.push(<ul key={`list-${listStart}`}>{items}</ul>)
+      blocks.push(<ul key={`${keyPrefix}-list-${listStart}`}>{items}</ul>)
       continue
     }
 
@@ -1147,11 +1146,52 @@ function MarkdownArticle({ source }: { source: string }) {
     const paragraphStart = index
     while (index < lines.length) {
       const part = (lines[index] ?? '').trim()
-      if (!part || /^(#{2,3})\s+/.test(part) || part.startsWith('- ')) break
+      if (!part || /^(#{1,3})\s+/.test(part) || part.startsWith('- ')) break
       paragraph.push(part)
       index += 1
     }
-    blocks.push(<p key={`paragraph-${paragraphStart}`}>{renderArticleInline(paragraph.join(' '))}</p>)
+    blocks.push(<p key={`${keyPrefix}-paragraph-${paragraphStart}`}>{renderArticleInline(paragraph.join(' '))}</p>)
+  }
+
+  return blocks
+}
+
+function MarkdownArticle({ source }: { source: string }) {
+  const lines = source.replace(/\r\n/g, '\n').split('\n')
+  const blocks: ReactNode[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = (lines[index] ?? '').trim()
+    const h1 = line.match(/^#\s+(.+)$/)
+
+    if (!h1?.[1]) {
+      const blockStart = index
+      while (index < lines.length && !/^#\s+/.test((lines[index] ?? '').trim())) {
+        index += 1
+      }
+      blocks.push(...renderMarkdownBlocks(lines.slice(blockStart, index), `root-${blockStart}`))
+      continue
+    }
+
+    const sectionStart = index
+    index += 1
+    const contentStart = index
+    while (index < lines.length && !/^#\s+/.test((lines[index] ?? '').trim())) {
+      index += 1
+    }
+
+    blocks.push(
+      <details className="article-collapse" key={`collapse-${sectionStart}`}>
+        <summary>
+          <span className="article-collapse-title">{renderArticleInline(h1[1])}</span>
+          <ChevronDown size={19} aria-hidden="true" />
+        </summary>
+        <div className="article-collapse-body">
+          {renderMarkdownBlocks(lines.slice(contentStart, index), `collapse-${sectionStart}`)}
+        </div>
+      </details>,
+    )
   }
 
   return <div className="article-body">{blocks}</div>
@@ -1184,9 +1224,6 @@ function ArticlePanel({ slug, onClose }: { slug: ArticleSlug; onClose: () => voi
             <h1 id="article-title">{article.title}</h1>
           </header>
           <MarkdownArticle source={article.source} />
-          <p className="article-edit-note">
-            {uiText(language, 'Edit this article in', '在此文件中编辑本文')} <code>{article.editPath}</code>{uiText(language, '.', '。')}
-          </p>
         </article>
       </section>
     </div>
