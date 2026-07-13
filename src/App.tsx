@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, MapPinned, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
@@ -389,15 +390,25 @@ function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilte
   const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia languages`
   const hasCoordinates = typeof place.latitude === 'number' && typeof place.longitude === 'number'
   const flags = countryFlags(place.countryLabelEn)
+  const cardTags = tagsFromValues(place.instanceOf, place.styles).slice(0, 3)
+  const href = placeHref(place.qid)
   return (
     <article className="place-card">
-      <a className="card-button" href={placeHref(place.qid)}>
-        <Thumbnail place={place} />
+      <div className="card-button">
+        <a className="card-image-link" href={href}>
+          <Thumbnail place={place} />
+        </a>
         <div className="card-copy">
-          <strong>{place.labelNative}</strong>
-          {(place.labelEn || place.labelZh) && <span className="place-subheading">{[place.labelEn, place.labelZh].filter(Boolean).join(' · ')}</span>}
+          <a className="card-copy-link" href={href}>
+            <strong>{place.labelNative}</strong>
+            {(place.labelEn || place.labelZh) && <span className="place-subheading">{[place.labelEn, place.labelZh].filter(Boolean).join(' · ')}</span>}
+          </a>
           <div className="card-meta">
-            <DesignationText values={place.designations} limit={2} className="card-designations" />
+            {cardTags.length > 0 && (
+              <ul className="card-tag-list" aria-label="Place tags">
+                {cardTags.map((tag) => <CardTagItem key={tag.qid || tag.label} tag={tag} nativeLanguageLabel={place.nativeLanguageLabelEn} />)}
+              </ul>
+            )}
             <span className="card-popularity-row">
               <span className="map-card-popularity" title={popularityTitle}>
                 <span>{uiText(language, 'Wiki popularity', 'Wiki 热度')}</span>
@@ -407,7 +418,7 @@ function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilte
             </span>
           </div>
         </div>
-      </a>
+      </div>
       <div className="card-rail">
         <button
           className="card-focus-button"
@@ -582,6 +593,61 @@ function TagItem({ tag, nativeLanguageLabel }: { tag: Tag; nativeLanguageLabel?:
   )
 }
 
+function CardTagItem({ tag, nativeLanguageLabel }: { tag: Tag; nativeLanguageLabel?: string }) {
+  const itemRef = useRef<HTMLLIElement | null>(null)
+  const closeTimerRef = useRef<number | undefined>(undefined)
+  const [tooltipStyle, setTooltipStyle] = useState<CSSProperties | null>(null)
+  const { open, lookup, loadNames, close } = useTagTooltip(tag, nativeLanguageLabel)
+
+  const positionTooltip = useCallback(() => {
+    const rect = itemRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const tooltipOuterWidth = 344
+    const viewportPadding = 12
+    setTooltipStyle({
+      top: rect.bottom + 8,
+      left: Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - tooltipOuterWidth - viewportPadding)),
+    })
+  }, [])
+
+  const openTooltip = () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current)
+    positionTooltip()
+    loadNames()
+  }
+
+  const closeTooltip = () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = undefined
+    setTooltipStyle(null)
+    close()
+  }
+
+  const scheduleCloseTooltip = () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = window.setTimeout(closeTooltip, 120)
+  }
+
+  useEffect(() => {
+    if (!open) return undefined
+    const updatePosition = () => positionTooltip()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+      if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current)
+    }
+  }, [open, positionTooltip])
+
+  return (
+    <li ref={itemRef} className="card-tag-item" tabIndex={0} onMouseEnter={openTooltip} onMouseLeave={scheduleCloseTooltip} onFocus={openTooltip} onBlur={scheduleCloseTooltip}>
+      <span>{tag.label}</span>
+      {open && tooltipStyle && createPortal(<TagTooltip tag={tag} lookup={lookup} className="card-tag-tooltip" style={tooltipStyle} onMouseEnter={openTooltip} onMouseLeave={scheduleCloseTooltip} />, document.body)}
+    </li>
+  )
+}
+
 function useTagTooltip(tag: Tag, nativeLanguageLabel?: string) {
   const [open, setOpen] = useState(false)
   const [lookup, setLookup] = useState<TagLookupState>({ status: 'idle' })
@@ -623,17 +689,18 @@ function TagHelp({ tag, placement = 'below' }: { tag: Tag; placement?: 'above' |
   )
 }
 
-function TagTooltip({ tag, lookup, showNativeName = true }: { tag: Tag; lookup: TagLookupState; showNativeName?: boolean }) {
+function TagTooltip({ tag, lookup, showNativeName = true, className = '', style, onMouseEnter, onMouseLeave }: { tag: Tag; lookup: TagLookupState; showNativeName?: boolean; className?: string; style?: CSSProperties; onMouseEnter?: () => void; onMouseLeave?: () => void }) {
+  const tooltipClassName = `tag-tooltip${className ? ` ${className}` : ''}`
   if (lookup.status === 'idle' || lookup.status === 'loading') {
-    return <span className="tag-tooltip" role="tooltip">Loading Wikidata details...</span>
+    return <span className={tooltipClassName} style={style} role="tooltip" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>Loading Wikidata details...</span>
   }
   if (lookup.status === 'error') {
-    return <span className="tag-tooltip" role="tooltip">{tag.qid ? 'Wikidata details unavailable.' : 'Wikidata QID not recorded.'}</span>
+    return <span className={tooltipClassName} style={style} role="tooltip" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>{tag.qid ? 'Wikidata details unavailable.' : 'Wikidata QID not recorded.'}</span>
   }
 
   const { info } = lookup
   return (
-    <span className="tag-tooltip" role="tooltip">
+    <span className={tooltipClassName} style={style} role="tooltip" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       {showNativeName && <span><strong>{info.nativeLanguageName ? `${info.nativeLanguageName} name` : 'Native name'}</strong>{info.nativeName || 'Not recorded'}</span>}
       <span><strong>Chinese name</strong>{info.chineseName || 'Not recorded'}</span>
       <span><strong>English description</strong>{info.englishDescription || 'Not recorded'}</span>

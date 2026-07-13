@@ -328,7 +328,6 @@ function updateLegend(element: HTMLDivElement, config: MetricConfig): void {
 
 function popupHtml(place: Place, metric: ColorMetric, wikiPopularityLabel: string): string {
   const translations = [place.labelEn, place.labelZh].filter(Boolean).join(' · ')
-  const designations = place.designations.map((item) => `<span>${escapeHtml(item)}</span>`).join('')
   const popularityTitle = `${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia popularity`
   const views = place.wikiViewCount ?? 0
   const thumbnail = place.commonsImageUrls[0]
@@ -341,7 +340,6 @@ function popupHtml(place: Place, metric: ColorMetric, wikiPopularityLabel: strin
       <div class="map-card-copy">
         <strong>${escapeHtml(place.labelNative)}</strong>
         ${translations ? `<span>${escapeHtml(translations)}</span>` : ''}
-        ${designations ? `<span class="map-card-designations">${designations}</span>` : ''}
         <span class="map-card-meta">
           <span class="map-card-popularity" title="${escapeHtml(popularityTitle)}">
             <span>${escapeHtml(wikiPopularityLabel)}</span>

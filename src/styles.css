@@ -808,9 +808,8 @@ h1 {
 .map-card-copy strong {
   color: #18212f;
   font-size: .9rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .map-card-designations {
@@ -1064,8 +1063,24 @@ h1 {
   align-items: start;
 }
 
-.card-button:hover strong {
+.card-button:hover .card-copy-link strong {
   color: #064e93;
+}
+
+.card-image-link,
+.card-copy-link {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card-image-link {
+  display: block;
+}
+
+.card-copy-link {
+  display: grid;
+  gap: 4px;
 }
 
 .card-rail {
@@ -1165,7 +1180,7 @@ h1 {
   font-size: .85rem;
 }
 
-.card-copy>strong {
+.card-copy-link>strong {
   color: #18212f;
   font-size: 1rem;
   overflow-wrap: anywhere;
@@ -1207,6 +1222,49 @@ h1 {
 
 .card-designations {
   flex-basis: 100%;
+}
+
+.card-tag-list {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-tag-list li {
+  position: relative;
+  max-width: 100%;
+  padding: .16rem .38rem;
+  border: 1px solid #bfd2df;
+  border-radius: 999px;
+  background: #f4faf8;
+  color: #315a55;
+  cursor: help;
+  font-size: .66rem;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.card-tag-list li:focus-visible {
+  outline: 2px solid rgba(6, 78, 147, .22);
+  outline-offset: 2px;
+}
+
+.card-tag-list li:hover,
+.card-tag-list li:focus-within {
+  z-index: 5;
+}
+
+.card-tag-tooltip {
+  position: fixed;
+  z-index: 3000;
+  top: auto;
+  left: auto;
+  font-size: .72rem;
 }
 
 .card-popularity-row {
