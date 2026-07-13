@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LocateFixed, MapPinned, RefreshCw, Trash2, Upload, X } from 'lucide-react'
+import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LayoutGrid, LayoutList, LocateFixed, MapPinned, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
@@ -349,12 +349,16 @@ async function fetchTagNameInfo(qid: string, nativeLanguageLabel: string | undef
   return lookup
 }
 
-function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card' | 'hero' }) {
+function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card' | 'grid' | 'hero' }) {
   const candidates = place.commonsImageUrls
   const [index, setIndex] = useState(0)
   const [usingOriginal, setUsingOriginal] = useState(false)
   const source = candidates[index]
-  const className = variant === 'hero' ? 'thumbnail thumbnail-hero' : 'thumbnail'
+  const className = variant === 'hero'
+    ? 'thumbnail thumbnail-hero'
+    : variant === 'grid'
+      ? 'thumbnail thumbnail-grid'
+      : 'thumbnail'
 
   useEffect(() => {
     setIndex(0)
@@ -373,7 +377,7 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
   const originalSource = fullResolutionImageUrl(source)
   const imageSource = variant === 'hero' || usingOriginal ? originalSource : thumbnailImageUrl(source, 384)
   const handleImageError = () => {
-    if (variant === 'card' && !usingOriginal) {
+    if (variant !== 'hero' && !usingOriginal) {
       setUsingOriginal(true)
       return
     }
@@ -381,8 +385,47 @@ function Thumbnail({ place, variant = 'card' }: { place: Place; variant?: 'card'
     setIndex((current) => current + 1)
   }
   const image = <img className={className} src={imageSource} alt={place.labelNative} loading={variant === 'hero' ? 'eager' : 'lazy'} referrerPolicy="no-referrer" onError={handleImageError} />
-  if (variant === 'card') return image
+  if (variant !== 'hero') return image
   return <a href={originalSource} target="_blank" rel="noreferrer" className="thumbnail-link">{image}</a>
+}
+
+function placeNameTooltip(place: Place): string {
+  return [
+    `Native: ${place.labelNative || 'Not recorded'}`,
+    `English: ${place.labelEn || 'Not recorded'}`,
+    `Chinese: ${place.labelZh || 'Not recorded'}`,
+  ].join('\n')
+}
+
+function GridPlaceTile({ place }: { place: Place }) {
+  const flags = countryFlags(place.countryLabelEn)
+  const flag = flags[0]
+  const title = placeNameTooltip(place)
+  return (
+    <a className="grid-place-tile" href={placeHref(place.qid)} title={title} aria-label={title}>
+      <Thumbnail place={place} variant="grid" />
+      <span className="grid-place-tooltip" aria-hidden="true">
+        <strong>{place.labelNative}</strong>
+        {place.labelEn && <span>{place.labelEn}</span>}
+        {place.labelZh && <span>{place.labelZh}</span>}
+      </span>
+      <span className="grid-place-score" title={`${place.wikipediaSitelinksCount.toLocaleString()} Wikipedia languages`}>
+        {place.wikipediaSitelinksCount.toLocaleString()}
+      </span>
+      {flag && (
+        <img
+          className="grid-place-flag"
+          src={`https://flagcdn.com/${flag.code.toLowerCase()}.svg`}
+          alt={`Flag of ${flag.name}`}
+          title={flag.name}
+          width="28"
+          height="21"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      )}
+    </a>
+  )
 }
 
 function PlaceCard({ place, sort, onFocusMap }: { place: Place; sort: PlaceFilters['sort']; onFocusMap: (place: Place) => void }) {
@@ -1624,6 +1667,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(0)
   const [pageInput, setPageInput] = useState('1')
+  const [displayMode, setDisplayMode] = useState<'map-list' | 'grid'>('map-list')
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const [mapFocusRequest, setMapFocusRequest] = useState<MapFocusRequest | null>(null)
   const mapFocusRequestId = useRef(0)
@@ -1633,7 +1677,8 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
 
   const result = useMemo(() => database.search(filters, page, PAGE_SIZE), [database, filters, page])
   const tagFilterStats = useMemo(() => database.getTagFilterStats(filters), [database, filters])
-  const mapPlaces = useMemo(() => bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds])
+  const isGridMode = displayMode === 'grid'
+  const mapPlaces = useMemo(() => !isGridMode && bounds ? database.getMapPlaces(filters, bounds) : [], [database, filters, bounds, isGridMode])
   const mapDataKey = JSON.stringify(filters)
   const countryOptions = useMemo(() => tagFilterStats.countries
     .map((option) => ({ ...option, label: localizedCountryLabel(option.value, language) }))
@@ -1646,6 +1691,9 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   const manualDownloadLabel = uiText(language, 'Download manually', '手动下载')
   const importDatasetLabel = uiText(language, 'Import ZIP or SQLite', '导入 ZIP 或 SQLite')
   const deleteLocalDataLabel = uiText(language, 'Delete local data', '删除本地数据')
+  const displayModeSwitchLabel = isGridMode
+    ? uiText(language, 'Show map and list', '显示地图和列表')
+    : uiText(language, 'Show thumbnail grid', '显示缩略图网格')
   const updatePercent = progress.total && progress.received > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : undefined
   const updateProgressLabel = progress.stage === 'downloading'
     ? progress.received > 0 ? 'Downloading update…' : 'Connecting to download…'
@@ -1658,7 +1706,7 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
   useEffect(() => {
     setPageInput(String(page + 1))
     if (placeListRef.current) placeListRef.current.scrollTop = 0
-  }, [page, pageCount])
+  }, [page, pageCount, displayMode])
 
   const updateFilters = (patch: Partial<PlaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))
@@ -1774,13 +1822,26 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
             ? `查询到${result.total.toLocaleString()}个地点，其中${result.missingCoordinateCount.toLocaleString()}个地点缺失坐标，未显示在地图上`
             : `Found ${result.total.toLocaleString()} places; ${result.missingCoordinateCount.toLocaleString()} are missing coordinates and are not shown on the map.`}
         </p>
+        <button
+          className="display-mode-switch"
+          type="button"
+          onClick={() => setDisplayMode((current) => current === 'grid' ? 'map-list' : 'grid')}
+          aria-pressed={isGridMode}
+          aria-label={displayModeSwitchLabel}
+          title={displayModeSwitchLabel}
+        >
+          {isGridMode ? <LayoutList size={17} aria-hidden="true" /> : <LayoutGrid size={17} aria-hidden="true" />}
+          <span>{isGridMode ? uiText(language, 'Map/list', '地图列表') : uiText(language, 'Grid', '网格')}</span>
+        </button>
       </section>
 
-      <section className="atlas-layout">
-        <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} wikiPopularityLabel={uiText(language, 'Wiki popularity', 'Wiki 热度')} language={language} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />
-        <aside className="place-list-panel" aria-label="Heritage place results">
-          <div ref={placeListRef} className="place-list">
-            {result.items.map((place) => <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}
+      <section className={isGridMode ? 'atlas-layout atlas-layout-grid-mode' : 'atlas-layout'}>
+        {!isGridMode && <MapPanel places={mapPlaces} dataKey={mapDataKey} colorMetric={filters.sort === 'sitelinks' ? 'sitelinks' : 'views'} wikiPopularityLabel={uiText(language, 'Wiki popularity', 'Wiki 热度')} language={language} focusRequest={mapFocusRequest} onOpenPlace={(qid) => { window.location.hash = `/place/${encodeURIComponent(qid)}` }} onViewportChanged={setBounds} />}
+        <aside className={isGridMode ? 'place-list-panel place-list-panel-grid' : 'place-list-panel'} aria-label="Heritage place results">
+          <div ref={placeListRef} className={isGridMode ? 'place-grid' : 'place-list'}>
+            {result.items.map((place) => isGridMode
+              ? <GridPlaceTile key={place.qid} place={place} />
+              : <PlaceCard key={place.qid} place={place} sort={filters.sort} onFocusMap={focusPlaceOnMap} />)}
             {!result.items.length && <p className="notice">No places match these filters.</p>}
           </div>
           {result.total > PAGE_SIZE && <nav className="pagination" aria-label="Results pagination">
