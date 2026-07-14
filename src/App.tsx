@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Download, ExternalLink, HelpCircle, Languages, LayoutGrid, LayoutList, LocateFixed, MapPinned, RefreshCw, Trash2, Upload, X } from 'lucide-react'
+import { ChevronDown, Download, ExternalLink, HelpCircle, LayoutGrid, LayoutList, LocateFixed, MapPinned, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import { extractSqliteFromZip } from './archive'
 import { AtlasDatabase, IncompatibleAtlasError } from './atlasDb'
 import { formatBytes, formatInception, formatViews } from './data'
@@ -47,8 +47,8 @@ function LanguageToggle() {
       aria-label={uiText(language, 'Switch site language to Chinese', '将网站语言切换为英语')}
       title={uiText(language, 'Switch to Chinese', '切换为英语')}
     >
-      <Languages size={17} aria-hidden="true" />
-      {language === 'en' ? '中文' : 'English'}
+      <span className={language === 'en' ? 'language-toggle-option language-toggle-option-active' : 'language-toggle-option'} aria-hidden="true">EN</span>
+      <span className={language === 'zh' ? 'language-toggle-option language-toggle-option-active' : 'language-toggle-option'} aria-hidden="true">{'\u4E2D'}</span>
     </button>
   )
 }
@@ -1830,8 +1830,12 @@ function ExplorePage({ database, stats, installed, manifest, onInstallLatest, on
           aria-label={displayModeSwitchLabel}
           title={displayModeSwitchLabel}
         >
-          {isGridMode ? <LayoutList size={17} aria-hidden="true" /> : <LayoutGrid size={17} aria-hidden="true" />}
-          <span>{isGridMode ? uiText(language, 'Map/list', '地图列表') : uiText(language, 'Grid', '网格')}</span>
+          <span className={isGridMode ? 'display-mode-option' : 'display-mode-option display-mode-option-active'} aria-hidden="true">
+            <LayoutList size={17} />
+          </span>
+          <span className={isGridMode ? 'display-mode-option display-mode-option-active' : 'display-mode-option'} aria-hidden="true">
+            <LayoutGrid size={17} />
+          </span>
         </button>
       </section>
 

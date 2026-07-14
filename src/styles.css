@@ -35,29 +35,48 @@ main {
 }
 
 .language-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+  display: inline-grid;
+  grid-template-columns: repeat(2, 34px);
+  gap: 2px;
   width: fit-content;
-  padding: .5rem .72rem;
+  min-height: 38px;
+  padding: 3px;
   border: 1px solid #a9bacb;
   border-radius: 999px;
   background: #fff;
-  color: #064e93;
+  color: #607086;
   cursor: pointer;
-  font-weight: 750;
   line-height: 1;
   box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
 }
 
 .language-toggle:hover {
   border-color: #6e91b2;
-  background: #eff6ff;
+  background: #f8fbff;
 }
 
 .language-toggle:focus-visible {
   outline: 3px solid rgba(36, 105, 255, .28);
   outline-offset: 2px;
+}
+
+.language-toggle-option {
+  display: grid;
+  width: 34px;
+  height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  color: #607086;
+  font-size: .78rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  transition: background-color .14s ease, color .14s ease, box-shadow .14s ease;
+}
+
+.language-toggle-option-active {
+  background: #064e93;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(6, 78, 147, .26);
 }
 
 .site-title-row {
@@ -625,28 +644,26 @@ h1 {
 }
 
 .display-mode-switch {
-  display: inline-flex;
+  display: inline-grid;
   grid-column: -2 / -1;
   align-self: end;
   justify-self: end;
-  align-items: center;
-  gap: 7px;
+  grid-template-columns: repeat(2, 32px);
+  gap: 2px;
   min-height: 38px;
-  padding: .52rem .68rem;
+  padding: 3px;
   border: 1px solid #9fb3c7;
-  border-radius: 8px;
+  border-radius: 999px;
   background: #fff;
-  color: #064e93;
+  color: #607086;
   cursor: pointer;
-  font-size: .82rem;
-  font-weight: 800;
   line-height: 1;
   box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
 }
 
 .display-mode-switch:hover {
   border-color: #6e91b2;
-  background: #eff6ff;
+  background: #f8fbff;
 }
 
 .display-mode-switch:focus-visible {
@@ -654,13 +671,24 @@ h1 {
   outline-offset: 2px;
 }
 
-.display-mode-switch[aria-pressed="true"] {
-  border-color: #39779f;
-  background: #e8f3ff;
+.display-mode-option {
+  display: grid;
+  width: 32px;
+  height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  color: #607086;
+  transition: background-color .14s ease, color .14s ease, box-shadow .14s ease;
+}
+
+.display-mode-option-active {
+  background: #064e93;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(6, 78, 147, .26);
 }
 
 .display-mode-switch svg {
-  flex: 0 0 auto;
+  display: block;
 }
 
 .atlas-layout {
